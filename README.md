@@ -253,18 +253,6 @@ DNS NS Records:
         └── utils.go       # Utility functions
 ```
 
-## Building with GitHub Actions
-
-This project includes GitHub Actions workflows to automatically build binaries for multiple platforms when a new tag is pushed. To create a new release:
-
-1. Tag your commit using semantic versioning:
-   ```bash
-   git tag -a v1.0.0 -m "Release version 1.0.0"
-   git push origin v1.0.0
-   ```
-
-2. The GitHub Actions workflow will automatically build binaries for multiple platforms and create a new release.
-
 ## License
 
 This project is licensed under the MIT License - see the LICENSE file for details.

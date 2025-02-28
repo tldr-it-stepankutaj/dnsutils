@@ -39,6 +39,8 @@ jobs:
   release:
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: write  # This permission is needed to create releases
     steps:
       - name: Download all artifacts
         uses: actions/download-artifact@v4

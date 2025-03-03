@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"github.com/olekukonko/tablewriter"
+	"github.com/tldr-it-stepankutaj/dnsutils/internal/cloud"
 	"github.com/tldr-it-stepankutaj/dnsutils/internal/security"
 	"os"
 	"os/signal"
@@ -35,6 +36,7 @@ var (
 	timeout      int
 	verbose      bool
 	noSecurity   bool // Changed to "noSecurity" flag to disable rather than enable
+	noCloud      bool
 )
 
 // Custom type for parsing port lists
@@ -69,6 +71,7 @@ func init() {
 	flag.IntVar(&timeout, "t", 1, "Timeout in seconds for network operations")
 	flag.BoolVar(&verbose, "v", false, "Verbose output")
 	flag.BoolVar(&noSecurity, "no-security", false, "Skip email security configuration analysis") // Changed to opt-out
+	flag.BoolVar(&noCloud, "no-cloud", false, "Skip cloud infrastructure detection")
 
 	// Custom usage message
 	flag.Usage = func() {
@@ -242,6 +245,32 @@ func main() {
 		}
 	}
 
+	if !noCloud {
+		console.PrintProgress("Analyzing cloud infrastructure...")
+
+		cloudDetector := cloud.NewDetector(dnsServer)
+		cloudResult, err := cloudDetector.AnalyzeCloudInfrastructure(domain, results)
+		if err != nil {
+			console.PrintWarning(fmt.Sprintf("Could not perform cloud infrastructure analysis: %s", err))
+		} else {
+			// Show a summary of the findings
+			if cloudResult.TotalProviders > 0 {
+				console.PrintSuccess(fmt.Sprintf("Found %d cloud providers with %d services",
+					cloudResult.TotalProviders, cloudResult.TotalServices))
+
+				if cloudResult.TotalOrphaned > 0 {
+					console.PrintWarning(fmt.Sprintf("Detected %d potential orphaned cloud resources",
+						cloudResult.TotalOrphaned))
+				}
+			} else {
+				console.PrintSuccess("No cloud infrastructure detected")
+			}
+
+			// Add cloud results to the overall results
+			results.CloudAnalysis = cloudResult
+		}
+	}
+
 	// 5. Gather detailed information for each subdomain
 	if len(results.Subdomains) > 0 {
 		console.PrintProgress("Gathering detailed information about subdomains...")
@@ -324,7 +353,11 @@ func main() {
 
 	// Print security results at the END of the output
 	if !noSecurity && secErr == nil && secResult != nil {
-		printSecurityResults(console, secResult, domain)
+		printSecurityResults(secResult, domain)
+	}
+
+	if !noCloud && results.CloudAnalysis != nil {
+		console.PrintCloudResults(results.CloudAnalysis, domain)
 	}
 
 	// Save results to file if requested
@@ -339,7 +372,7 @@ func main() {
 	}
 }
 
-func printSecurityResults(console *output.Console, result *models.SecurityResult, domain string) {
+func printSecurityResults(result *models.SecurityResult, domain string) {
 	// Print overall security score
 	securityRating := "Poor"
 	if result.SecurityScore >= 70 {
@@ -572,26 +605,4 @@ func processSubdomains(subdomains []string, certFinder *subdomain.CertFinder, re
 	}
 
 	return validSubdomains
-}
-
-// Add this function to format policy:
-func formatSecurityPolicy(policy string) string {
-	switch policy {
-	case "fail", "reject":
-		return fmt.Sprintf("%s%s%s", output.ColorGreen, policy, output.ColorReset)
-	case "softfail", "quarantine":
-		return fmt.Sprintf("%s%s%s", output.ColorYellow, policy, output.ColorReset)
-	case "none", "neutral", "pass":
-		return fmt.Sprintf("%s%s%s", output.ColorRed, policy, output.ColorReset)
-	default:
-		return policy
-	}
-}
-
-// Also add minSpf function if not already present:
-func minSpf(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }

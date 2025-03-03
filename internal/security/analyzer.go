@@ -23,8 +23,8 @@ func NewAnalyzer(server string) *Analyzer {
 }
 
 // AnalyzeDomain performs security analysis on a domain
-func (a *Analyzer) AnalyzeDomain(domain string) (*SecurityResult, error) {
-	result := &SecurityResult{
+func (a *Analyzer) AnalyzeDomain(domain string) (*models.SecurityResult, error) {
+	result := &models.SecurityResult{
 		SecurityScore:   0,
 		Recommendations: []string{},
 	}
@@ -138,7 +138,7 @@ func (a *Analyzer) AnalyzeDomain(domain string) (*SecurityResult, error) {
 }
 
 // AnalyzeSPF analyzes SPF record of a domain
-func (a *Analyzer) AnalyzeSPF(domain string) (*SPFAnalysis, error) {
+func (a *Analyzer) AnalyzeSPF(domain string) (*models.SPFAnalysis, error) {
 	records, err := a.getTXTRecords(domain)
 	if err != nil {
 		return nil, err
@@ -157,7 +157,7 @@ func (a *Analyzer) AnalyzeSPF(domain string) (*SPFAnalysis, error) {
 	}
 
 	// Initialize SPF analysis
-	analysis := &SPFAnalysis{
+	analysis := &models.SPFAnalysis{
 		Record:      spfRecord,
 		Valid:       true,
 		Policy:      "neutral",
@@ -215,7 +215,7 @@ func (a *Analyzer) AnalyzeSPF(domain string) (*SPFAnalysis, error) {
 }
 
 // AnalyzeDMARC analyzes DMARC record of a domain
-func (a *Analyzer) AnalyzeDMARC(domain string) (*DMARCAnalysis, error) {
+func (a *Analyzer) AnalyzeDMARC(domain string) (*models.DMARCAnalysis, error) {
 	records, err := a.getTXTRecords("_dmarc." + domain)
 	if err != nil {
 		return nil, err
@@ -234,7 +234,7 @@ func (a *Analyzer) AnalyzeDMARC(domain string) (*DMARCAnalysis, error) {
 	}
 
 	// Initialize DMARC analysis
-	analysis := &DMARCAnalysis{
+	analysis := &models.DMARCAnalysis{
 		Record:          dmarcRecord,
 		Valid:           true,
 		Policy:          "none",
@@ -270,7 +270,10 @@ func (a *Analyzer) AnalyzeDMARC(domain string) (*DMARCAnalysis, error) {
 			analysis.SubdomainPolicy = subPolicy
 		} else if strings.HasPrefix(part, "pct=") {
 			pct := strings.TrimPrefix(part, "pct=")
-			fmt.Sscanf(pct, "%d", &analysis.Percentage)
+			_, err := fmt.Sscanf(pct, "%d", &analysis.Percentage)
+			if err != nil {
+				return nil, err
+			}
 			if analysis.Percentage < 100 {
 				analysis.Issues = append(analysis.Issues, fmt.Sprintf("Only applying policy to %d%% of messages", analysis.Percentage))
 			}
@@ -304,10 +307,10 @@ func (a *Analyzer) AnalyzeDMARC(domain string) (*DMARCAnalysis, error) {
 }
 
 // AnalyzeDKIM analyzes DKIM records for a domain
-func (a *Analyzer) AnalyzeDKIM(domain string) ([]*DKIMAnalysis, error) {
+func (a *Analyzer) AnalyzeDKIM(domain string) ([]*models.DKIMAnalysis, error) {
 	// Try common selectors
 	commonSelectors := []string{"default", "google", "mail", "dkim", "selector1", "selector2", "k1"}
-	var results []*DKIMAnalysis
+	var results []*models.DKIMAnalysis
 
 	for _, selector := range commonSelectors {
 		selectorDomain := fmt.Sprintf("%s._domainkey.%s", selector, domain)
@@ -318,7 +321,7 @@ func (a *Analyzer) AnalyzeDKIM(domain string) ([]*DKIMAnalysis, error) {
 
 		for _, record := range records {
 			if strings.Contains(record, "v=DKIM1") {
-				analysis := &DKIMAnalysis{
+				analysis := &models.DKIMAnalysis{
 					Selector: selector,
 					Record:   record,
 					Valid:    true,
@@ -356,7 +359,7 @@ func (a *Analyzer) AnalyzeDKIM(domain string) ([]*DKIMAnalysis, error) {
 }
 
 // AnalyzeMX analyzes MX records for a domain
-func (a *Analyzer) AnalyzeMX(domain string) (*MXAnalysis, error) {
+func (a *Analyzer) AnalyzeMX(domain string) (*models.MXAnalysis, error) {
 	m := new(dns.Msg)
 	m.SetQuestion(dns.Fqdn(domain), dns.TypeMX)
 	m.RecursionDesired = true
@@ -366,7 +369,7 @@ func (a *Analyzer) AnalyzeMX(domain string) (*MXAnalysis, error) {
 		return nil, err
 	}
 
-	analysis := &MXAnalysis{
+	analysis := &models.MXAnalysis{
 		Servers:       []string{},
 		HasBackup:     false,
 		AllSecure:     true,
@@ -415,7 +418,7 @@ func (a *Analyzer) AnalyzeMX(domain string) (*MXAnalysis, error) {
 }
 
 // AnalyzeCAA analyzes CAA records for a domain
-func (a *Analyzer) AnalyzeCAA(domain string) (*CAAAnalysis, error) {
+func (a *Analyzer) AnalyzeCAA(domain string) (*models.CAAAnalysis, error) {
 	m := new(dns.Msg)
 	m.SetQuestion(dns.Fqdn(domain), dns.TypeCAA)
 	m.RecursionDesired = true
@@ -425,7 +428,7 @@ func (a *Analyzer) AnalyzeCAA(domain string) (*CAAAnalysis, error) {
 		return nil, err
 	}
 
-	analysis := &CAAAnalysis{
+	analysis := &models.CAAAnalysis{
 		Records:          []string{},
 		HasIssueWildcard: false,
 		IssueCAs:         []string{},

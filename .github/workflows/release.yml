@@ -54,6 +54,15 @@ jobs:
         run: |
           VERSION=${{ github.ref_name }}  # Extract tag name (v1.0.2)
           VERSION=${VERSION#v}  # Remove "v" prefix if present
+          # Convert Go arch to RPM-compatible arch
+          RPM_ARCH=${{ matrix.arch }}
+          if [[ "$RPM_ARCH" == "amd64" ]]; then
+            RPM_ARCH="x86_64"
+          fi
+          if [[ "$RPM_ARCH" == "arm64" ]]; then
+            RPM_ARCH="aarch64"
+          fi
+
           mkdir -p rpmbuild/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
           cat <<EOF > rpmbuild/SPECS/securitydns.spec
           Name: securitydns
@@ -63,7 +72,7 @@ jobs:
           License: MIT
           Group: Utilities/System
           Source: securitydns.tar.gz
-          BuildArch: ${{ matrix.arch }}
+          BuildArch: $RPM_ARCH
           Requires: glibc
           
           %description
@@ -76,7 +85,7 @@ jobs:
 
           %install
           mkdir -p %{buildroot}/usr/local/bin
-          install -m 755 bin/securitydns-linux-${{ matrix.arch }} %{buildroot}/usr/local/bin/securitydns
+          install -m 755 bin/securitydns-linux-$RPM_ARCH %{buildroot}/usr/local/bin/securitydns
 
           %files
           /usr/local/bin/securitydns
@@ -86,18 +95,35 @@ jobs:
           - Initial release
           EOF
 
-          tar czf rpmbuild/SOURCES/securitydns.tar.gz bin/securitydns-linux-${{ matrix.arch }}
+          tar czf rpmbuild/SOURCES/securitydns.tar.gz bin/securitydns-linux-$RPM_ARCH
           rpmbuild -bb --define "_topdir $(pwd)/rpmbuild" rpmbuild/SPECS/securitydns.spec
-          mv rpmbuild/RPMS/${{ matrix.arch }}/securitydns-$VERSION-1.${{ matrix.arch }}.rpm securitydns-${{ matrix.arch }}.rpm
+          mv rpmbuild/RPMS/$RPM_ARCH/securitydns-$VERSION-1.$RPM_ARCH.rpm securitydns-$RPM_ARCH.rpm
 
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        run: |
+          # Convert Go arch to RPM-compatible arch
+          RPM_ARCH=${{ matrix.arch }}
+          if [[ "$RPM_ARCH" == "amd64" ]]; then
+            RPM_ARCH="x86_64"
+          fi
+          if [[ "$RPM_ARCH" == "arm64" ]]; then
+            RPM_ARCH="aarch64"
+          fi
+
+          # Create a directory for the artifacts
+          mkdir -p artifacts
+          mv bin/securitydns-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.os == 'windows' && '.exe' || '' }} artifacts/
+          mv securitydns-${{ matrix.arch }}.deb artifacts/
+          mv securitydns-$RPM_ARCH.rpm artifacts/
+
+        with:
+          path: ''
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: securitydns-${{ matrix.os }}-${{ matrix.arch }}
-          path: |
-            bin/securitydns-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.os == 'windows' && '.exe' || '' }}
-            securitydns-${{ matrix.arch }}.deb
-            securitydns-${{ matrix.arch }}.rpm
+          path: artifacts/*
 
   release:
     needs: build

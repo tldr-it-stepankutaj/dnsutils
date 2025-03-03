@@ -72,6 +72,8 @@ Download the latest release from the [Releases page](https://github.com/tldr-it-
         Skip brute-force subdomain discovery
   -no-certs
         Skip subdomain discovery via certificates
+  --no-security
+        Disable email security scan
   -o string
         Output file for results (JSON)
   -p value
@@ -221,6 +223,60 @@ DNS NS Records:
 | mail4.cia.gov | mail4.cia.gov | Could not obtain      | Could not obtain         |
 | crypt.cia.gov | crypt.cia.gov | Could not obtain      | Could not obtain         |
 +---------------+---------------+-----------------------+--------------------------+
+
+<span style="color: #3498db; font-weight: bold;">Email Security Analysis for cia.gov:</span>
++----------------+--------+
+| SECURITY RATING| SCORE  |
++----------------+--------+
+| Good           | 50/100 |
++----------------+--------+
+
+<span style="color: #3498db; font-weight: bold;">SPF RECORD:</span>
++--------+----------+-------------------+
+| STATUS | POLICY   | RECORD            |
++--------+----------+-------------------+
+| Valid  | softfail | v=spf1 ... ~all   |
++--------+----------+-------------------+
+
+<span style="color: #3498db; font-weight: bold;">DMARC RECORD:</span>
++----------+--------+-----------+--------+
+| STATUS   | POLICY | PERCENTAGE| RECORD |
++----------+--------+-----------+--------+
+| Not Found| -      | -         | -      |
++----------+--------+-----------+--------+
+
+<span style="color: #3498db; font-weight: bold;">DKIM RECORDS:</span>
++--------+----------+
+| STATUS | SELECTORS|
++--------+----------+
+| 1 Valid| default  |
++--------+----------+
+
+<span style="color: #3498db; font-weight: bold;">MX SECURITY:</span>
++----------------+----------+----------------------+
+| SECURITY STATUS| BACKUP MX| SERVERS             |
++----------------+----------+----------------------+
+| Secure         | Yes      | mail1.example.com,  |
+|                |          | mail2.example.com   |
++----------------+----------+----------------------+
+
+<span style="color: #3498db; font-weight: bold;">CAA RECORDS:</span>
++------------+------------+
+| STATUS     | ISSUERS    |
++------------+------------+
+| Configured | letsencrypt|
++------------+------------+
+
+<span style="color: #3498db; font-weight: bold;">RECOMMENDATIONS:</span>
++---+---------------------------------------------------+
+| # | RECOMMENDATION                                    |
++---+---------------------------------------------------+
+| 1 | DMARC: No DMARC record found. Consider adding a   |
+|   | DMARC record for better email security.           |
++---+---------------------------------------------------+
+| 2 | CAA: No issuewild property found; using issue     |
+|   | constraints for wildcards                         |
++---+---------------------------------------------------+
 </pre>
 
 ## Project Structure

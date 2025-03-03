@@ -49,71 +49,6 @@ jobs:
           chmod 755 package/usr/local/bin/securitydns
           dpkg-deb --build package securitydns-${{ matrix.arch }}.deb
 
-      - name: Create .rpm Package (RHEL/CentOS)
-        if: matrix.os == 'linux'
-        run: |
-          VERSION=${{ github.ref_name }}  # Extract tag name (v1.0.2)
-          VERSION=${VERSION#v}  # Remove "v" prefix if present
-          # Convert Go arch to RPM-compatible arch
-          RPM_ARCH=${{ matrix.arch }}
-          if [[ "$RPM_ARCH" == "amd64" ]]; then
-            RPM_ARCH="x86_64"
-          fi
-          if [[ "$RPM_ARCH" == "arm64" ]]; then
-            RPM_ARCH="aarch64"
-          fi
-
-          mkdir -p rpmbuild/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
-          cat <<EOF > rpmbuild/SPECS/securitydns.spec
-          Name: securitydns
-          Version: $VERSION
-          Release: 1%{?dist}
-          Summary: DNS Security Utils package
-          License: MIT
-          Group: Utilities/System
-          Source: securitydns.tar.gz
-          BuildArch: $RPM_ARCH
-          Requires: glibc
-          
-          %description
-          A simple DNS Security Utils package.
-
-          %prep
-          %setup -q
-
-          %build
-
-          %install
-          mkdir -p %{buildroot}/usr/local/bin
-          install -m 755 bin/securitydns-linux-$RPM_ARCH %{buildroot}/usr/local/bin/securitydns
-
-          %files
-          /usr/local/bin/securitydns
-
-          %changelog
-          * $(date +'%a %b %d %Y') Stepan Kutaj <stepan.kutaj@tldr-it.com> - $VERSION-1
-          - Initial release
-          EOF
-
-          tar czf rpmbuild/SOURCES/securitydns.tar.gz bin/securitydns-linux-$RPM_ARCH
-          rpmbuild -bb --define "_topdir $(pwd)/rpmbuild" rpmbuild/SPECS/securitydns.spec
-          mv rpmbuild/RPMS/$RPM_ARCH/securitydns-$VERSION-1.$RPM_ARCH.rpm securitydns-$RPM_ARCH.rpm
-
-      - name: Upload Artifacts
-        run: |
-          # Convert Go arch to RPM-compatible arch
-          RPM_ARCH=${{ matrix.arch }}
-          if [[ "$RPM_ARCH" == "amd64" ]]; then
-            RPM_ARCH="x86_64"
-          elif [[ "$RPM_ARCH" == "arm64" ]]; then
-            RPM_ARCH="aarch64"
-          fi
-
-          # Rename RPM package to match pattern
-          if [[ -f securitydns-$RPM_ARCH.rpm ]]; then
-            mv securitydns-$RPM_ARCH.rpm securitydns-${{ matrix.arch }}.rpm
-          fi
-
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -121,7 +56,6 @@ jobs:
           path: |
             bin/securitydns-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.os == 'windows' && '.exe' || '' }}
             securitydns-${{ matrix.arch }}.deb
-            securitydns-${{ matrix.arch }}.rpm
 
   release:
     needs: build

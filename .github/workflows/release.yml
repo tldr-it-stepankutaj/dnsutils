@@ -33,7 +33,8 @@ jobs:
       - name: Create .deb Package (Debian/Ubuntu)
         if: matrix.os == 'linux'
         run: |
-          VERSION=${GITHUB_REF#refs/tags/v}  # Strip "v" from version
+          VERSION=${{ github.ref_name }}  # Extract tag name (v1.0.2)
+          VERSION=${VERSION#v}  # Remove "v" prefix if present
           mkdir -p package/DEBIAN
           echo "Package: securitydns" > package/DEBIAN/control
           echo "Version: $VERSION" >> package/DEBIAN/control
@@ -51,7 +52,8 @@ jobs:
       - name: Create .rpm Package (RHEL/CentOS)
         if: matrix.os == 'linux'
         run: |
-          VERSION=${GITHUB_REF#refs/tags/v}  # Strip "v" from version
+          VERSION=${{ github.ref_name }}  # Extract tag name (v1.0.2)
+          VERSION=${VERSION#v}  # Remove "v" prefix if present
           mkdir -p rpmbuild/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
           cat <<EOF > rpmbuild/SPECS/securitydns.spec
           Name: securitydns
@@ -80,13 +82,13 @@ jobs:
           /usr/local/bin/securitydns
 
           %changelog
-          * $(date +'%a %b %d %Y') Stepan Kutaj <stepan.kutaj@tldr-it.com> - ${{ github.ref_name }}-1
+          * $(date +'%a %b %d %Y') Stepan Kutaj <stepan.kutaj@tldr-it.com> - $VERSION-1
           - Initial release
           EOF
 
           tar czf rpmbuild/SOURCES/securitydns.tar.gz bin/securitydns-linux-${{ matrix.arch }}
           rpmbuild -bb --define "_topdir $(pwd)/rpmbuild" rpmbuild/SPECS/securitydns.spec
-          mv rpmbuild/RPMS/${{ matrix.arch }}/securitydns-${{ github.ref_name }}-1.${{ matrix.arch }}.rpm securitydns-${{ matrix.arch }}.rpm
+          mv rpmbuild/RPMS/${{ matrix.arch }}/securitydns-$VERSION-1.${{ matrix.arch }}.rpm securitydns-${{ matrix.arch }}.rpm
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4

@@ -10,6 +10,7 @@ type Results struct {
 	CertSubdomains   []string                    `json:"cert_subdomains"`
 	BruteSubdomains  []string                    `json:"brute_subdomains"`
 	SecurityAnalysis *SecurityResult             `json:"security_analysis,omitempty"`
+	CloudAnalysis    *CloudAnalysisResult        `json:"cloud_analysis,omitempty"`
 }
 
 // SubdomainInfo represents basic subdomain information

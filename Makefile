@@ -1,5 +1,5 @@
-BINARY_NAME=dnsutils
-VERSION=1.0.0
+BINARY_NAME=securitydns
+VERSION=1.0.1
 BUILD_DIR=bin
 
 build:

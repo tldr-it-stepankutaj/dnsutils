@@ -3,8 +3,11 @@ package main
 import (
 	"flag"
 	"fmt"
+	"github.com/olekukonko/tablewriter"
+	"github.com/tldr-it-stepankutaj/dnsutils/internal/security"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -31,6 +34,7 @@ var (
 	concurrency  int
 	timeout      int
 	verbose      bool
+	noSecurity   bool // Changed to "noSecurity" flag to disable rather than enable
 )
 
 // Custom type for parsing port lists
@@ -52,7 +56,7 @@ func (p *portsFlag) Set(value string) error {
 
 func init() {
 	// Default ports to scan
-	ports = []int{80, 443, 22, 21, 25, 8080, 8443}
+	ports = []int{80, 443, 22, 21, 25, 8080, 8443, 53}
 
 	// Parse flags
 	flag.StringVar(&outputFile, "o", "", "Output file for results (JSON)")
@@ -64,11 +68,18 @@ func init() {
 	flag.IntVar(&concurrency, "c", 40, "Concurrency level for scans")
 	flag.IntVar(&timeout, "t", 1, "Timeout in seconds for network operations")
 	flag.BoolVar(&verbose, "v", false, "Verbose output")
+	flag.BoolVar(&noSecurity, "no-security", false, "Skip email security configuration analysis") // Changed to opt-out
 
 	// Custom usage message
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: %s [options] domain\n\n", os.Args[0])
-		fmt.Fprintf(os.Stderr, "Options:\n")
+		_, err := fmt.Fprintf(os.Stderr, "Usage: %s [options] domain\n\n", os.Args[0])
+		if err != nil {
+			return
+		}
+		_, err = fmt.Fprintf(os.Stderr, "Options:\n")
+		if err != nil {
+			return
+		}
 		flag.PrintDefaults()
 	}
 }
@@ -86,7 +97,10 @@ func main() {
 
 	// Validate the domain
 	if !utils.ValidateDomain(domain) {
-		fmt.Fprintf(os.Stderr, "Error: Invalid domain name: %s\n", domain)
+		_, err := fmt.Fprintf(os.Stderr, "Error: Invalid domain name: %s\n", domain)
+		if err != nil {
+			return
+		}
 		os.Exit(1)
 	}
 
@@ -157,6 +171,30 @@ func main() {
 	}
 
 	wg.Wait()
+
+	// Run security analysis AFTER DNS records are retrieved, but store results for later display
+	var secResult *models.SecurityResult
+	var secErr error
+	if !noSecurity {
+		console.PrintProgress("Analyzing email security configuration...")
+		secAnalyzer := security.NewAnalyzer(dnsServer)
+		secResult, secErr = secAnalyzer.AnalyzeDomain(domain)
+
+		if secErr == nil && secResult != nil {
+			// Add security results to the overall results
+			results.SecurityAnalysis = secResult
+
+			// Print a summary line about the security findings
+			recCount := len(secResult.Recommendations)
+			if recCount > 0 {
+				console.PrintSuccess(fmt.Sprintf("Found %d mail security recommendations", recCount))
+			} else {
+				console.PrintSuccess("Mail security configuration appears optimal")
+			}
+		} else if secErr != nil {
+			console.PrintWarning(fmt.Sprintf("Could not perform security analysis: %s", secErr))
+		}
+	}
 
 	// 3. Find subdomains from certificates
 	if !noCerts {
@@ -284,6 +322,11 @@ func main() {
 	// Print results
 	console.PrintResults(results)
 
+	// Print security results at the END of the output
+	if !noSecurity && secErr == nil && secResult != nil {
+		printSecurityResults(console, secResult, domain)
+	}
+
 	// Save results to file if requested
 	if outputFile != "" {
 		jsonOutput := output.NewJSON()
@@ -293,6 +336,192 @@ func main() {
 		} else {
 			console.PrintSuccess(fmt.Sprintf("Results saved to file: %s", outputFile))
 		}
+	}
+}
+
+func printSecurityResults(console *output.Console, result *models.SecurityResult, domain string) {
+	// Print overall security score
+	securityRating := "Poor"
+	if result.SecurityScore >= 70 {
+		securityRating = "Excellent"
+	} else if result.SecurityScore >= 50 {
+		securityRating = "Good"
+	} else if result.SecurityScore >= 30 {
+		securityRating = "Fair"
+	}
+
+	fmt.Printf("\n%s%sEmail Security Analysis for %s:%s\n",
+		output.ColorBold, output.ColorBlue, domain, output.ColorReset)
+
+	// Create summary table
+	summaryTable := tablewriter.NewWriter(os.Stdout)
+	summaryTable.SetHeader([]string{"Security Rating", "Score"})
+	summaryTable.Append([]string{securityRating, fmt.Sprintf("%d/100", result.SecurityScore)})
+	summaryTable.SetBorder(true)
+	summaryTable.Render()
+
+	// SPF Record Table
+	fmt.Printf("\n%s%sSPF Record:%s\n", output.ColorBold, output.ColorBlue, output.ColorReset)
+	spfTable := tablewriter.NewWriter(os.Stdout)
+	spfTable.SetHeader([]string{"Status", "Policy", "Record"})
+
+	if result.SPFRecord != nil {
+		var status string
+		if result.SPFRecord.Valid {
+			status = "Valid"
+		} else {
+			status = "Invalid"
+		}
+
+		spfTable.Append([]string{
+			status,
+			result.SPFRecord.Policy,
+			result.SPFRecord.Record,
+		})
+	} else {
+		spfTable.Append([]string{"Not Found", "-", "-"})
+	}
+
+	spfTable.SetBorder(true)
+	spfTable.Render()
+
+	// DMARC Record Table
+	fmt.Printf("\n%s%sDMARC Record:%s\n", output.ColorBold, output.ColorBlue, output.ColorReset)
+	dmarcTable := tablewriter.NewWriter(os.Stdout)
+	dmarcTable.SetHeader([]string{"Status", "Policy", "Percentage", "Record"})
+
+	if result.DMARCRecord != nil {
+		var status string
+		if result.DMARCRecord.Valid {
+			status = "Valid"
+		} else {
+			status = "Invalid"
+		}
+
+		dmarcTable.Append([]string{
+			status,
+			result.DMARCRecord.Policy,
+			fmt.Sprintf("%d%%", result.DMARCRecord.Percentage),
+			result.DMARCRecord.Record,
+		})
+	} else {
+		dmarcTable.Append([]string{"Not Found", "-", "-", "-"})
+	}
+
+	dmarcTable.SetBorder(true)
+	dmarcTable.Render()
+
+	// DKIM Records Table
+	fmt.Printf("\n%s%sDKIM Records:%s\n", output.ColorBold, output.ColorBlue, output.ColorReset)
+	dkimTable := tablewriter.NewWriter(os.Stdout)
+	dkimTable.SetHeader([]string{"Status", "Selectors"})
+
+	if result.DKIMRecords != nil && len(result.DKIMRecords) > 0 {
+		validCount := 0
+		var selectors []string
+
+		for _, dkim := range result.DKIMRecords {
+			if dkim.Valid {
+				validCount++
+				selectors = append(selectors, dkim.Selector)
+			}
+		}
+
+		if validCount > 0 {
+			dkimTable.Append([]string{
+				fmt.Sprintf("%d Valid", validCount),
+				strings.Join(selectors, ", "),
+			})
+		} else {
+			dkimTable.Append([]string{"Invalid", ""})
+		}
+	} else {
+		dkimTable.Append([]string{"Not Found", "-"})
+	}
+
+	dkimTable.SetBorder(true)
+	dkimTable.Render()
+
+	// MX Security Table
+	fmt.Printf("\n%s%sMX Security:%s\n", output.ColorBold, output.ColorBlue, output.ColorReset)
+	mxTable := tablewriter.NewWriter(os.Stdout)
+	mxTable.SetHeader([]string{"Security Status", "Backup MX", "Servers"})
+
+	if result.MXAnalysis != nil && len(result.MXAnalysis.Servers) > 0 {
+		var securityStatus string
+		if result.MXAnalysis.AllSecure {
+			securityStatus = "Secure"
+		} else {
+			securityStatus = "Partial/Unknown"
+		}
+
+		var backupStatus string
+		if result.MXAnalysis.HasBackup {
+			backupStatus = "Yes"
+		} else {
+			backupStatus = "No"
+		}
+
+		mxTable.Append([]string{
+			securityStatus,
+			backupStatus,
+			strings.Join(result.MXAnalysis.Servers, ", "),
+		})
+	} else {
+		mxTable.Append([]string{"Not Available", "-", "-"})
+	}
+
+	mxTable.SetBorder(true)
+	mxTable.Render()
+
+	// CAA Records Table
+	fmt.Printf("\n%s%sCAA Records:%s\n", output.ColorBold, output.ColorBlue, output.ColorReset)
+	caaTable := tablewriter.NewWriter(os.Stdout)
+	caaTable.SetHeader([]string{"Status", "Issuers"})
+
+	if result.CAAAnalysis != nil && len(result.CAAAnalysis.IssueCAs) > 0 {
+		caaTable.Append([]string{
+			"Configured",
+			strings.Join(result.CAAAnalysis.IssueCAs, ", "),
+		})
+	} else {
+		caaTable.Append([]string{"Not Found", "-"})
+	}
+
+	caaTable.SetBorder(true)
+	caaTable.Render()
+
+	// Recommendations
+	if len(result.Recommendations) > 0 {
+		fmt.Printf("\n%s%sRecommendations:%s\n", output.ColorBold, output.ColorBlue, output.ColorReset)
+
+		recTable := tablewriter.NewWriter(os.Stdout)
+		recTable.SetHeader([]string{"#", "Recommendation"})
+		recTable.SetAutoWrapText(false)
+		recTable.SetColWidth(80)
+
+		maxToShow := 5
+		numToShow := len(result.Recommendations)
+		if numToShow > maxToShow {
+			numToShow = maxToShow
+		}
+
+		for i, rec := range result.Recommendations[:numToShow] {
+			recTable.Append([]string{
+				fmt.Sprintf("%d", i+1),
+				rec,
+			})
+		}
+
+		if len(result.Recommendations) > maxToShow {
+			recTable.Append([]string{
+				"...",
+				fmt.Sprintf("And %d more recommendations", len(result.Recommendations)-maxToShow),
+			})
+		}
+
+		recTable.SetBorder(true)
+		recTable.Render()
 	}
 }
 
@@ -343,4 +572,26 @@ func processSubdomains(subdomains []string, certFinder *subdomain.CertFinder, re
 	}
 
 	return validSubdomains
+}
+
+// Add this function to format policy:
+func formatSecurityPolicy(policy string) string {
+	switch policy {
+	case "fail", "reject":
+		return fmt.Sprintf("%s%s%s", output.ColorGreen, policy, output.ColorReset)
+	case "softfail", "quarantine":
+		return fmt.Sprintf("%s%s%s", output.ColorYellow, policy, output.ColorReset)
+	case "none", "neutral", "pass":
+		return fmt.Sprintf("%s%s%s", output.ColorRed, policy, output.ColorReset)
+	default:
+		return policy
+	}
+}
+
+// Also add minSpf function if not already present:
+func minSpf(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }

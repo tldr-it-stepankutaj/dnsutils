@@ -33,9 +33,10 @@ jobs:
       - name: Create .deb Package (Debian/Ubuntu)
         if: matrix.os == 'linux'
         run: |
+          VERSION=${GITHUB_REF#refs/tags/v}  # Strip "v" from version
           mkdir -p package/DEBIAN
           echo "Package: securitydns" > package/DEBIAN/control
-          echo "Version: ${{ github.ref_name }}" >> package/DEBIAN/control
+          echo "Version: $VERSION" >> package/DEBIAN/control
           echo "Section: utils" >> package/DEBIAN/control
           echo "Priority: optional" >> package/DEBIAN/control
           echo "Architecture: ${{ matrix.arch }}" >> package/DEBIAN/control
@@ -50,10 +51,11 @@ jobs:
       - name: Create .rpm Package (RHEL/CentOS)
         if: matrix.os == 'linux'
         run: |
+          VERSION=${GITHUB_REF#refs/tags/v}  # Strip "v" from version
           mkdir -p rpmbuild/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
           cat <<EOF > rpmbuild/SPECS/securitydns.spec
           Name: securitydns
-          Version: ${{ github.ref_name }}
+          Version: $VERSION
           Release: 1%{?dist}
           Summary: DNS Security Utils package
           License: MIT

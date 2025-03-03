@@ -100,30 +100,28 @@ jobs:
           mv rpmbuild/RPMS/$RPM_ARCH/securitydns-$VERSION-1.$RPM_ARCH.rpm securitydns-$RPM_ARCH.rpm
 
       - name: Upload Artifacts
-        uses: actions/upload-artifact@v4
         run: |
           # Convert Go arch to RPM-compatible arch
           RPM_ARCH=${{ matrix.arch }}
           if [[ "$RPM_ARCH" == "amd64" ]]; then
             RPM_ARCH="x86_64"
-          fi
-          if [[ "$RPM_ARCH" == "arm64" ]]; then
+          elif [[ "$RPM_ARCH" == "arm64" ]]; then
             RPM_ARCH="aarch64"
           fi
 
-          # Create a directory for the artifacts
-          mkdir -p artifacts
-          mv bin/securitydns-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.os == 'windows' && '.exe' || '' }} artifacts/
-          mv securitydns-${{ matrix.arch }}.deb artifacts/
-          mv securitydns-$RPM_ARCH.rpm artifacts/
+          # Rename RPM package to match pattern
+          if [[ -f securitydns-$RPM_ARCH.rpm ]]; then
+            mv securitydns-$RPM_ARCH.rpm securitydns-${{ matrix.arch }}.rpm
+          fi
 
-        with:
-          path: ''
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: securitydns-${{ matrix.os }}-${{ matrix.arch }}
-          path: artifacts/*
+          path: |
+            bin/securitydns-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.os == 'windows' && '.exe' || '' }}
+            securitydns-${{ matrix.arch }}.deb
+            securitydns-${{ matrix.arch }}.rpm
 
   release:
     needs: build

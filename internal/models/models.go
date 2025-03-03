@@ -2,13 +2,14 @@ package models
 
 // Results represents the complete scan results
 type Results struct {
-	Domain          string                      `json:"domain"`
-	DomainIPs       []string                    `json:"domain_ips"`
-	Records         map[string]interface{}      `json:"records"`
-	Subdomains      []SubdomainInfo             `json:"subdomains"`
-	SubdomainData   map[string]SubdomainDetails `json:"subdomain_data"`
-	CertSubdomains  []string                    `json:"cert_subdomains"`
-	BruteSubdomains []string                    `json:"brute_subdomains"`
+	Domain           string                      `json:"domain"`
+	DomainIPs        []string                    `json:"domain_ips"`
+	Records          map[string]interface{}      `json:"records"`
+	Subdomains       []SubdomainInfo             `json:"subdomains"`
+	SubdomainData    map[string]SubdomainDetails `json:"subdomain_data"`
+	CertSubdomains   []string                    `json:"cert_subdomains"`
+	BruteSubdomains  []string                    `json:"brute_subdomains"`
+	SecurityAnalysis *SecurityResult             `json:"security_analysis,omitempty"`
 }
 
 // SubdomainInfo represents basic subdomain information

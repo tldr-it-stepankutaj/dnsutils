@@ -28,13 +28,72 @@ jobs:
       - name: Build
         run: |
           mkdir -p bin
-          GOOS=${{ matrix.os }} GOARCH=${{ matrix.arch }} go build -o bin/dnsutils-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.os == 'windows' && '.exe' || '' }} ./cmd/main.go
+          GOOS=${{ matrix.os }} GOARCH=${{ matrix.arch }} go build -o bin/securitydns-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.os == 'windows' && '.exe' || '' }} ./cmd/main.go
+
+      - name: Create .deb Package (Debian/Ubuntu)
+        if: matrix.os == 'linux'
+        run: |
+          mkdir -p package/DEBIAN
+          echo "Package: securitydns" > package/DEBIAN/control
+          echo "Version: ${{ github.ref_name }}" >> package/DEBIAN/control
+          echo "Section: utils" >> package/DEBIAN/control
+          echo "Priority: optional" >> package/DEBIAN/control
+          echo "Architecture: ${{ matrix.arch }}" >> package/DEBIAN/control
+          echo "Depends: libc6" >> package/DEBIAN/control
+          echo "Maintainer: Stepan Kutaj <stepan.kutaj@tldr-it.com>" >> package/DEBIAN/control
+          echo "Description: DNS Security Utils package" >> package/DEBIAN/control
+          mkdir -p package/usr/local/bin
+          cp bin/securitydns-linux-${{ matrix.arch }} package/usr/local/bin/securitydns
+          chmod 755 package/usr/local/bin/securitydns
+          dpkg-deb --build package securitydns-${{ matrix.arch }}.deb
+
+      - name: Create .rpm Package (RHEL/CentOS)
+        if: matrix.os == 'linux'
+        run: |
+          mkdir -p rpmbuild/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
+          cat <<EOF > rpmbuild/SPECS/securitydns.spec
+          Name: securitydns
+          Version: ${{ github.ref_name }}
+          Release: 1%{?dist}
+          Summary: DNS Security Utils package
+          License: MIT
+          Group: Utilities/System
+          Source: securitydns.tar.gz
+          BuildArch: ${{ matrix.arch }}
+          Requires: glibc
+          
+          %description
+          A simple DNS Security Utils package.
+
+          %prep
+          %setup -q
+
+          %build
+
+          %install
+          mkdir -p %{buildroot}/usr/local/bin
+          install -m 755 bin/securitydns-linux-${{ matrix.arch }} %{buildroot}/usr/local/bin/securitydns
+
+          %files
+          /usr/local/bin/securitydns
+
+          %changelog
+          * $(date +'%a %b %d %Y') Stepan Kutaj <stepan.kutaj@tldr-it.com> - ${{ github.ref_name }}-1
+          - Initial release
+          EOF
+
+          tar czf rpmbuild/SOURCES/securitydns.tar.gz bin/securitydns-linux-${{ matrix.arch }}
+          rpmbuild -bb --define "_topdir $(pwd)/rpmbuild" rpmbuild/SPECS/securitydns.spec
+          mv rpmbuild/RPMS/${{ matrix.arch }}/securitydns-${{ github.ref_name }}-1.${{ matrix.arch }}.rpm securitydns-${{ matrix.arch }}.rpm
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: dnsutils-${{ matrix.os }}-${{ matrix.arch }}
-          path: bin/dnsutils-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.os == 'windows' && '.exe' || '' }}
+          name: securitydns-${{ matrix.os }}-${{ matrix.arch }}
+          path: |
+            bin/securitydns-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.os == 'windows' && '.exe' || '' }}
+            securitydns-${{ matrix.arch }}.deb
+            securitydns-${{ matrix.arch }}.rpm
 
   release:
     needs: build

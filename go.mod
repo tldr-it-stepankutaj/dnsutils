@@ -3,7 +3,7 @@ module github.com/tldr-it-stepankutaj/dnsutils
 go 1.24.0
 
 require (
-	github.com/miekg/dns v1.1.63
+	github.com/miekg/dns v1.1.64
 	github.com/olekukonko/tablewriter v0.0.5
 	golang.org/x/net v0.35.0
 )

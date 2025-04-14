@@ -5,7 +5,7 @@ go 1.24.0
 require (
 	github.com/miekg/dns v1.1.65
 	github.com/olekukonko/tablewriter v0.0.5
-	golang.org/x/net v0.38.0
+	golang.org/x/net v0.39.0
 )
 
 require (

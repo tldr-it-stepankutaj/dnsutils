@@ -18,6 +18,17 @@ A powerful DNS reconnaissance and subdomain discovery tool written in Go. This t
 - 📊 **Clean, colorized output** with formatted tables
 - 💾 **JSON export** for further analysis or integration
 
+## 🔳 Terminal UI (TUI)
+
+DNSUtils now includes a built-in **Text User Interface (TUI)** powered by [`rivo/tview`](https://github.com/rivo/tview).
+
+### Launch it:
+
+```bash
+dnsutils tui
+```
+![TUI Example](assets/img.png)
+
 ## Installation
 
 ### Pre-built Binaries

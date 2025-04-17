@@ -20,6 +20,7 @@ import (
 	"github.com/tldr-it-stepankutaj/dnsutils/internal/scanner"
 	"github.com/tldr-it-stepankutaj/dnsutils/internal/ssl"
 	"github.com/tldr-it-stepankutaj/dnsutils/internal/subdomain"
+	"github.com/tldr-it-stepankutaj/dnsutils/internal/tui"
 	"github.com/tldr-it-stepankutaj/dnsutils/pkg/utils"
 )
 
@@ -37,6 +38,7 @@ var (
 	verbose      bool
 	noSecurity   bool // Changed to "noSecurity" flag to disable rather than enable
 	noCloud      bool
+	useTUI       bool
 )
 
 // Custom type for parsing port lists
@@ -72,6 +74,7 @@ func init() {
 	flag.BoolVar(&verbose, "v", false, "Verbose output")
 	flag.BoolVar(&noSecurity, "no-security", false, "Skip email security configuration analysis") // Changed to opt-out
 	flag.BoolVar(&noCloud, "no-cloud", false, "Skip cloud infrastructure detection")
+	flag.BoolVar(&useTUI, "tui", false, "Spustit v TUI režimu (terminálové rozhraní)")
 
 	// Custom usage message
 	flag.Usage = func() {
@@ -90,6 +93,11 @@ func init() {
 func main() {
 	// Parse command-line arguments
 	flag.Parse()
+
+	if useTUI {
+		tui.RunTUI()
+		return
+	}
 
 	// Get the domain from arguments
 	if flag.NArg() != 1 {

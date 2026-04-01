@@ -9,8 +9,22 @@ type Results struct {
 	SubdomainData    map[string]SubdomainDetails `json:"subdomain_data"`
 	CertSubdomains   []string                    `json:"cert_subdomains"`
 	BruteSubdomains  []string                    `json:"brute_subdomains"`
+	PassiveSubdomains []string                   `json:"passive_subdomains,omitempty"`
 	SecurityAnalysis *SecurityResult             `json:"security_analysis,omitempty"`
 	CloudAnalysis    *CloudAnalysisResult        `json:"cloud_analysis,omitempty"`
+	WhoisInfo        *WhoisInfo                  `json:"whois_info,omitempty"`
+	ZoneTransfer     []ZoneTransferResult        `json:"zone_transfer,omitempty"`
+	DNSSEC           *DNSSECResult               `json:"dnssec,omitempty"`
+	TakeoverResults  []TakeoverResult            `json:"takeover_results,omitempty"`
+	HeaderAnalysis   map[string]*HeaderAnalysis   `json:"header_analysis,omitempty"`
+	ReverseDNS       []ReverseDNSResult          `json:"reverse_dns,omitempty"`
+	CacheSnoop       []CacheSnoopResult          `json:"cache_snoop,omitempty"`
+}
+
+// ReverseDNSResult represents a reverse DNS lookup result
+type ReverseDNSResult struct {
+	IP        string   `json:"ip"`
+	Hostnames []string `json:"hostnames"`
 }
 
 // SubdomainInfo represents basic subdomain information

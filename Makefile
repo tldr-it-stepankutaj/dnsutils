@@ -1,5 +1,5 @@
 BINARY_NAME=securitydns
-VERSION=1.0.4
+VERSION=2.0.0
 BUILD_DIR=bin
 
 build:

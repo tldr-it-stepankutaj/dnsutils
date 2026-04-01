@@ -1,6 +1,6 @@
 # DNS Reconnaissance Tool
 
-A powerful DNS reconnaissance and subdomain discovery tool written in Go. This tool helps security researchers and penetration testers gather comprehensive information about domains, including DNS records, subdomains, SSL certificates, and service fingerprinting.
+A powerful DNS reconnaissance and subdomain discovery tool written in Go, designed for penetration testers, red teamers, and security researchers. Performs comprehensive OSINT gathering including DNS records, subdomain enumeration from multiple sources, WHOIS, DNSSEC validation, zone transfer testing, subdomain takeover detection, HTTP security header analysis, and more.
 
 [![GitHub release](https://img.shields.io/github/v/release/tldr-it-stepankutaj/dnsutils)](https://github.com/tldr-it-stepankutaj/dnsutils/releases)
 [![Go Report Card](https://goreportcard.com/badge/github.com/tldr-it-stepankutaj/dnsutils)](https://goreportcard.com/report/github.com/tldr-it-stepankutaj/dnsutils)
@@ -8,24 +8,43 @@ A powerful DNS reconnaissance and subdomain discovery tool written in Go. This t
 
 ## Features
 
-- 🔍 **DNS record enumeration** - A, AAAA, MX, TXT, CNAME, NS and SOA records
-- 🔎 **Subdomain discovery** via:
-  - Certificate Transparency logs
-  - Brute-force scanning with custom wordlists
-- 🔐 **SSL certificate information**
+### DNS & Infrastructure
+- 🔍 **DNS record enumeration** — A, AAAA, MX, TXT, CNAME, NS, SOA
+- 🔓 **DNS Zone Transfer (AXFR) testing** — tests all nameservers for misconfigured zone transfers
+- 🛡️ **DNSSEC validation** — checks DNSKEY, DS, RRSIG records and validates chain of trust
+- 🕵️ **DNS cache snooping** — non-recursive queries to detect cached records on nameservers
+- 📋 **WHOIS lookup** — registrar, dates, nameservers, DNSSEC status via raw WHOIS protocol
+
+### Subdomain Discovery
+- 📜 **Certificate Transparency** — subdomain enumeration via crt.sh
+- 🌐 **Passive sources** — HackerTarget, AlienVault OTX, URLScan.io, Wayback Machine, RapidDNS
+- 🔨 **Brute-force** — ~500 built-in prefixes or custom wordlist
+- 🔄 **Recursive discovery** — finds sub-subdomains from discovered hosts
+- 🃏 **Wildcard DNS detection** — automatically detects and filters wildcard responses
+- 🔙 **Reverse DNS (PTR)** — PTR lookups for all discovered IPs
+
+### Security Analysis
+- ⚡ **Subdomain takeover detection** — 20+ service fingerprints (GitHub Pages, Heroku, S3, Azure, Shopify, Fastly, etc.)
+- 🔒 **HTTP security headers** — checks HSTS, CSP, X-Frame-Options, CORP, COOP, Referrer-Policy, etc.
+- 🏷️ **Technology fingerprinting** — detects CMS, frameworks, CDN, WAF, analytics (WordPress, React, Cloudflare, etc.)
+- 📧 **Email security** — SPF, DMARC, DKIM, MX, CAA analysis with scoring and recommendations
+- ☁️ **Cloud infrastructure detection** — AWS, Azure, GCP, DigitalOcean service identification and orphaned resource detection
+
+### Output & Reporting
+- 📊 **Clean, colorized console output** with formatted tables
+- 💾 **JSON export** for scripting and automation
+- 📄 **HTML report** — self-contained dark-themed report for pentest deliverables
 - 🔧 **Port scanning and service fingerprinting**
 - 🌐 **ASN lookup** for discovered IP addresses
-- 📊 **Clean, colorized output** with formatted tables
-- 💾 **JSON export** for further analysis or integration
 
 ## 🔳 Terminal UI (TUI)
 
-DNSUtils now includes a built-in **Text User Interface (TUI)** powered by [`rivo/tview`](https://github.com/rivo/tview).
+DNSUtils includes a built-in **Text User Interface (TUI)** powered by [`rivo/tview`](https://github.com/rivo/tview).
 
 ### Launch it:
 
 ```bash
-dnsutils tui
+dnsutils -tui
 ```
 ![TUI Example](assets/img.png)
 
@@ -39,7 +58,7 @@ Download the latest release from the [Releases page](https://github.com/tldr-it-
 
 #### Prerequisites
 
-- Go 1.21 or later
+- Go 1.24 or later
 
 #### Building
 
@@ -69,256 +88,119 @@ Download the latest release from the [Releases page](https://github.com/tldr-it-
 ## Usage
 
 ```bash
-./bin/dnsutils [options] domain
+./bin/securitydns [options] domain
 ```
 
 ### Options
 
-```
-  -c int
-        Concurrency level for scans (default 40)
-  -dns string
-        DNS server to use for queries (default "8.8.8.8:53")
-  -no-bruteforce
-        Skip brute-force subdomain discovery
-  -no-certs
-        Skip subdomain discovery via certificates
-  --no-security
-        Disable email security scan
-  -o string
-        Output file for results (JSON)
-  -p value
-        Ports to scan (can be used multiple times, default: 80,443,22,21,25,8080,8443)
-  -t int
-        Timeout in seconds for network operations (default 1)
-  -v    Verbose output
-  -w string
-        File with subdomain list for brute-force
-```
+| Option | Description | Default |
+|--------|-------------|---------|
+| `-c int` | Concurrency level for scans | 40 |
+| `-dns string` | DNS server to use for queries | `8.8.8.8:53` |
+| `-o string` | Output file for results (JSON) | |
+| `-html string` | Output file for HTML report | |
+| `-p value` | Ports to scan (repeatable) | 80,443,22,21,25,8080,8443,53 |
+| `-t int` | Timeout in seconds | 1 |
+| `-v` | Verbose output | |
+| `-w string` | Custom wordlist for brute-force | |
+| `-tui` | Launch Terminal UI mode | |
+| `-no-certs` | Skip CT log subdomain discovery | |
+| `-no-bruteforce` | Skip brute-force subdomain discovery | |
+| `-no-passive` | Skip passive subdomain sources | |
+| `-no-recursive` | Skip recursive subdomain discovery | |
+| `-no-whois` | Skip WHOIS lookup | |
+| `-no-axfr` | Skip DNS zone transfer test | |
+| `-no-dnssec` | Skip DNSSEC validation | |
+| `-no-takeover` | Skip subdomain takeover detection | |
+| `-no-headers` | Skip HTTP security header analysis | |
+| `-no-reverse` | Skip reverse DNS lookups | |
+| `-no-cachesnoop` | Skip DNS cache snooping | |
+| `-no-security` | Skip email security analysis | |
+| `-no-cloud` | Skip cloud infrastructure detection | |
 
 ### Examples
 
-Basic scan:
+Basic full scan:
 ```bash
-./bin/dnsutils example.com
+./bin/securitydns example.com
 ```
 
-Advanced scan with custom settings:
+Full scan with JSON and HTML output:
 ```bash
-./bin/dnsutils -o results.json -w wordlist.txt -p 80 -p 443 -p 8080 -c 100 -t 2 example.com
+./bin/securitydns -o results.json -html report.html example.com
 ```
 
-## Example Output
+Fast scan (skip slow modules):
+```bash
+./bin/securitydns -no-bruteforce -no-passive -no-headers -no-reverse example.com
+```
 
-Running a scan against `cia.gov` produces detailed output like this:
+Custom wordlist and ports:
+```bash
+./bin/securitydns -w wordlist.txt -p 80 -p 443 -p 8080 -c 100 -t 2 example.com
+```
 
-<pre style="background-color: #000; color: #fff; padding: 10px; border-radius: 5px; overflow: auto;">
-<span style="color: #3498db;">
-╔═══════════════════════════════════════════════════════╗
-║               DNS Reconnaissance Tool                 ║
-╚═══════════════════════════════════════════════════════╝
-</span>
-<span style="color: #3498db;">[*]</span> Starting DNS reconnaissance...
-<span style="color: #3498db;">[*]</span> Getting IP addresses for the domain...
-<span style="color: #2ecc71;">[+]</span> Found 3 IP addresses for cia.gov
-<span style="color: #3498db;">[*]</span> Looking for SOA records...
-<span style="color: #3498db;">[*]</span> Looking for CNAME records...
-<span style="color: #3498db;">[*]</span> Looking for NS records...
-<span style="color: #3498db;">[*]</span> Looking for A records...
-<span style="color: #3498db;">[*]</span> Looking for TXT records...
-<span style="color: #3498db;">[*]</span> Looking for AAAA records...
-<span style="color: #3498db;">[*]</span> Looking for MX records...
-<span style="color: #2ecc71;">[+]</span> Found 1 A records
-<span style="color: #2ecc71;">[+]</span> Found 1 SOA records
-<span style="color: #2ecc71;">[+]</span> Found 6 NS records
-<span style="color: #2ecc71;">[+]</span> Found 2 MX records
-<span style="color: #2ecc71;">[+]</span> Found 1 TXT records
-<span style="color: #2ecc71;">[+]</span> Found 2 AAAA records
-<span style="color: #3498db;">[*]</span> Looking for subdomains via certificates...
-<span style="color: #2ecc71;">[+]</span> Found 15 subdomains via certificates
-<span style="color: #2ecc71;">[+]</span> Verified 6 active subdomains from certificates
-<span style="color: #3498db;">[*]</span> Starting brute-force subdomain discovery...
-<span style="color: #2ecc71;">[+]</span> Found 1 subdomains via brute-force
-<span style="color: #3498db;">[*]</span> Gathering detailed information about subdomains...
-<span style="color: #2ecc71;">[+]</span> Gathered detailed information for 6 subdomains
-<span style="color: #2ecc71;">[+]</span> Scanning domain: cia.gov
-<span style="color: #2ecc71;">[+]</span> Domain IP addresses: 23.207.8.62, 2600:141b:e800:1088::184d, 2600:141b:e800:108b::184d
-
-DNS MX Records:
-+------------+----------------+
-| PREFERENCE | EXCHANGE       |
-+------------+----------------+
-| 10         | mail4.cia.gov. |
-+------------+----------------+
-| 10         | mail3.cia.gov. |
-+------------+----------------+
-
-DNS TXT Records:
-+----------------+
-| TEXT           |
-+----------------+
-| v=spf1 mx -all |
-+----------------+
-
-DNS AAAA Records:
-+---------------------------+
-| IP ADDRESS                |
-+---------------------------+
-| 2600:141b:e800:1088::184d |
-+---------------------------+
-| 2600:141b:e800:108b::184d |
-+---------------------------+
-
-DNS A Records:
-+-------------+
-| IP ADDRESS  |
-+-------------+
-| 23.207.8.62 |
-+-------------+
-
-DNS SOA Records:
-+-----------------+-----------------+------------+---------+-------+---------+---------+
-| PRIMARY NS      | ADMIN EMAIL     | SERIAL     | REFRESH | RETRY | EXPIRE  | MINIMUM |
-+-----------------+-----------------+------------+---------+-------+---------+---------+
-| a1-22.akam.net. | monrpt.cia.gov. | 2015111800 | 7200    | 3600  | 2419200 | 14400   |
-+-----------------+-----------------+------------+---------+-------+---------+---------+
-
-DNS NS Records:
-+------------------+
-| NAMESERVER       |
-+------------------+
-| a12-65.akam.net. |
-+------------------+
-| a22-66.akam.net. |
-+------------------+
-| a3-64.akam.net.  |
-+------------------+
-| a16-67.akam.net. |
-+------------------+
-| a13-65.akam.net. |
-+------------------+
-| a1-22.akam.net.  |
-+------------------+
-
-<span style="color: #3498db; font-weight: bold;">Discovered Subdomains (7):</span>
-+---------------+----------------+--------------------------------------+---------------------------------------+
-| SUBDOMAIN     | IP ADDRESS     | ASN                                  | OPEN SERVICES                         |
-+---------------+----------------+--------------------------------------+---------------------------------------+
-| crypt.cia.gov | 198.81.129.72  | ASN:7046 Central Intelligence Agency |                                       |
-+---------------+----------------+--------------------------------------+---------------------------------------+
-| mail3.cia.gov | 12.151.182.158 | ASN:7018 AT&T Services, Inc.         | smtp                                  |
-+---------------+----------------+--------------------------------------+---------------------------------------+
-| mail4.cia.gov | 12.151.182.219 | ASN:7018 AT&T Services, Inc.         | smtp                                  |
-+---------------+----------------+--------------------------------------+---------------------------------------+
-| mivsp.cia.gov | 198.81.130.231 | ASN:7046 Central Intelligence Agency |                                       |
-+---------------+----------------+--------------------------------------+---------------------------------------+
-| res.cia.gov   | 198.81.129.116 | ASN:7046 Central Intelligence Agency |                                       |
-+---------------+----------------+--------------------------------------+---------------------------------------+
-| www.cia.gov   | 184.30.165.43  | ASN:16625 Akamai Technologies, Inc.  | https: AkamaiGHost title: Invalid URL |
-|               |                |                                      |                                       |
-|               |                |                                      | http: AkamaiGHost title: Invalid URL  |
-+---------------+----------------+--------------------------------------+---------------------------------------+
-| www.cia.gov   | 184.30.165.43  | ASN:16625 Akamai Technologies, Inc.  | https: AkamaiGHost title: Invalid URL |
-|               |                |                                      |                                       |
-|               |                |                                      | http: AkamaiGHost title: Invalid URL  |
-+---------------+----------------+--------------------------------------+---------------------------------------+
-
-<span style="color: #3498db; font-weight: bold;">SSL Certificates (6):</span>
-+---------------+---------------+-----------------------+--------------------------+
-| SUBDOMAIN     | COMMON NAME   | ISSUER                | EXPIRY                   |
-+---------------+---------------+-----------------------+--------------------------+
-| www.cia.gov   | www.cia.gov   | DigiCert EV RSA CA G2 | Apr 22 23:59:59 2025 GMT |
-| res.cia.gov   | res.cia.gov   | Could not obtain      | Could not obtain         |
-| mivsp.cia.gov | mivsp.cia.gov | Could not obtain      | Could not obtain         |
-| mail3.cia.gov | mail3.cia.gov | Could not obtain      | Could not obtain         |
-| mail4.cia.gov | mail4.cia.gov | Could not obtain      | Could not obtain         |
-| crypt.cia.gov | crypt.cia.gov | Could not obtain      | Could not obtain         |
-+---------------+---------------+-----------------------+--------------------------+
-
-<span style="color: #3498db; font-weight: bold;">Email Security Analysis for cia.gov:</span>
-+----------------+--------+
-| SECURITY RATING| SCORE  |
-+----------------+--------+
-| Good           | 50/100 |
-+----------------+--------+
-
-<span style="color: #3498db; font-weight: bold;">SPF RECORD:</span>
-+--------+----------+-------------------+
-| STATUS | POLICY   | RECORD            |
-+--------+----------+-------------------+
-| Valid  | softfail | v=spf1 ... ~all   |
-+--------+----------+-------------------+
-
-<span style="color: #3498db; font-weight: bold;">DMARC RECORD:</span>
-+----------+--------+-----------+--------+
-| STATUS   | POLICY | PERCENTAGE| RECORD |
-+----------+--------+-----------+--------+
-| Not Found| -      | -         | -      |
-+----------+--------+-----------+--------+
-
-<span style="color: #3498db; font-weight: bold;">DKIM RECORDS:</span>
-+--------+----------+
-| STATUS | SELECTORS|
-+--------+----------+
-| 1 Valid| default  |
-+--------+----------+
-
-<span style="color: #3498db; font-weight: bold;">MX SECURITY:</span>
-+----------------+----------+----------------------+
-| SECURITY STATUS| BACKUP MX| SERVERS             |
-+----------------+----------+----------------------+
-| Secure         | Yes      | mail1.example.com,  |
-|                |          | mail2.example.com   |
-+----------------+----------+----------------------+
-
-<span style="color: #3498db; font-weight: bold;">CAA RECORDS:</span>
-+------------+------------+
-| STATUS     | ISSUERS    |
-+------------+------------+
-| Configured | letsencrypt|
-+------------+------------+
-
-<span style="color: #3498db; font-weight: bold;">RECOMMENDATIONS:</span>
-+---+---------------------------------------------------+
-| # | RECOMMENDATION                                    |
-+---+---------------------------------------------------+
-| 1 | DMARC: No DMARC record found. Consider adding a   |
-|   | DMARC record for better email security.           |
-+---+---------------------------------------------------+
-| 2 | CAA: No issuewild property found; using issue     |
-|   | constraints for wildcards                         |
-+---+---------------------------------------------------+
-</pre>
+Only DNS + WHOIS + zone transfer (no subdomain enumeration):
+```bash
+./bin/securitydns -no-certs -no-bruteforce -no-passive -no-recursive example.com
+```
 
 ## Project Structure
 
 ```
 .
 ├── cmd
-│   └── main.go            # Application entry point
-├── go.mod                 # Go module file
-├── go.sum                 # Go module checksum
+│   ├── main.go                 # Application entry point
+│   └── security/main.go        # Standalone email security binary
 ├── internal
-│   ├── asn
-│   │   └── lookup.go      # ASN lookup functionality
+│   ├── asn/lookup.go           # ASN lookup (ipapi.co, ip-api.com)
+│   ├── cloud/detector.go       # Cloud infrastructure detection
 │   ├── dns
-│   │   └── resolver.go    # DNS record retrieval
-│   ├── models
-│   │   └── models.go      # Data structures
+│   │   ├── resolver.go         # DNS record retrieval
+│   │   ├── zonetransfer.go     # AXFR zone transfer testing
+│   │   ├── dnssec.go           # DNSSEC chain validation
+│   │   └── cachesnoop.go       # DNS cache snooping
+│   ├── httpinfo
+│   │   ├── headers.go          # HTTP security header analysis
+│   │   └── techdetect.go       # Technology fingerprinting
+│   ├── models/                 # Data structures
 │   ├── output
-│   │   ├── console.go     # Console output formatting
-│   │   └── json.go        # JSON output
-│   ├── scanner
-│   │   └── portscanner.go # Port scanning and service detection
-│   ├── ssl
-│   │   └── certificate.go # SSL certificate handling
-│   └── subdomain
-│       ├── bruteforce.go  # Brute force subdomain discovery
-│       └── certs.go       # Subdomain discovery via certs
-└── pkg
-    └── utils
-        └── utils.go       # Utility functions
+│   │   ├── console.go          # Colorized console output
+│   │   ├── json.go             # JSON export
+│   │   ├── html.go             # HTML report generator
+│   │   └── cloud.go            # Cloud results formatting
+│   ├── scanner/portscanner.go  # Port scanning & service detection
+│   ├── security/analyzer.go    # Email security (SPF/DMARC/DKIM/MX/CAA)
+│   ├── ssl/certificate.go      # SSL certificate extraction
+│   ├── subdomain
+│   │   ├── certs.go            # CT log discovery
+│   │   ├── passive.go          # Passive source aggregator
+│   │   ├── bruteforce.go       # Brute-force enumeration
+│   │   ├── takeover.go         # Subdomain takeover detection
+│   │   ├── wildcard.go         # Wildcard DNS detection
+│   │   └── reverse.go          # Reverse DNS (PTR) lookups
+│   ├── tui/                    # Terminal UI (rivo/tview)
+│   └── whois/lookup.go         # WHOIS protocol client
+└── pkg/utils/utils.go          # Utility functions
 ```
+
+## Changelog (v2.0.0)
+
+- **WHOIS lookup** — registrar, dates, nameservers via raw WHOIS protocol (no external deps)
+- **DNS Zone Transfer (AXFR)** — tests all NS for misconfigured zone transfers
+- **DNSSEC validation** — DNSKEY/DS/RRSIG chain of trust verification
+- **DNS cache snooping** — detects cached records on target nameservers
+- **Subdomain takeover detection** — 20+ service fingerprints (GitHub Pages, Heroku, S3, Azure, Shopify, Fastly, Ghost, Zendesk, Fly.io, etc.)
+- **HTTP security headers** — HSTS, CSP, X-Frame-Options, CORP, COOP, Referrer-Policy, Permissions-Policy
+- **Technology fingerprinting** — CMS, frameworks, CDN, WAF, analytics detection (WordPress, React, Cloudflare, Akamai, etc.)
+- **Passive subdomain sources** — HackerTarget, AlienVault OTX, URLScan.io, Wayback Machine, RapidDNS
+- **Wildcard DNS detection** — automatic detection and filtering of wildcard responses
+- **Recursive subdomain discovery** — finds sub-subdomains from CT logs
+- **Reverse DNS (PTR)** — PTR lookups for all discovered IPs
+- **HTML report generation** — self-contained dark-themed report for pentest deliverables
+- **Expanded brute-force wordlist** — ~500 built-in prefixes (was 57)
+- **Cloud infrastructure detection** — AWS, Azure, GCP, DigitalOcean service and orphaned resource detection
+- **Email security scoring** — SPF, DMARC, DKIM, MX backup, CAA analysis
 
 ## License
 
@@ -328,6 +210,7 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 - [miekg/dns](https://github.com/miekg/dns) - DNS library for Go
 - [olekukonko/tablewriter](https://github.com/olekukonko/tablewriter) - ASCII table in Go
+- [rivo/tview](https://github.com/rivo/tview) - Terminal UI library
 
 ---
 

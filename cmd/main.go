@@ -3,9 +3,6 @@ package main
 import (
 	"flag"
 	"fmt"
-	"github.com/olekukonko/tablewriter"
-	"github.com/tldr-it-stepankutaj/dnsutils/internal/cloud"
-	"github.com/tldr-it-stepankutaj/dnsutils/internal/security"
 	"os"
 	"os/signal"
 	"strings"
@@ -13,14 +10,19 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/olekukonko/tablewriter"
 	"github.com/tldr-it-stepankutaj/dnsutils/internal/asn"
+	"github.com/tldr-it-stepankutaj/dnsutils/internal/cloud"
 	"github.com/tldr-it-stepankutaj/dnsutils/internal/dns"
+	"github.com/tldr-it-stepankutaj/dnsutils/internal/httpinfo"
 	"github.com/tldr-it-stepankutaj/dnsutils/internal/models"
 	"github.com/tldr-it-stepankutaj/dnsutils/internal/output"
 	"github.com/tldr-it-stepankutaj/dnsutils/internal/scanner"
+	"github.com/tldr-it-stepankutaj/dnsutils/internal/security"
 	"github.com/tldr-it-stepankutaj/dnsutils/internal/ssl"
 	"github.com/tldr-it-stepankutaj/dnsutils/internal/subdomain"
 	"github.com/tldr-it-stepankutaj/dnsutils/internal/tui"
+	"github.com/tldr-it-stepankutaj/dnsutils/internal/whois"
 	"github.com/tldr-it-stepankutaj/dnsutils/pkg/utils"
 )
 
@@ -28,16 +30,26 @@ import (
 var (
 	domain       string
 	outputFile   string
+	htmlFile     string
 	wordlistFile string
 	ports        portsFlag
 	noCerts      bool
 	noBruteforce bool
+	noPassive    bool
 	dnsServer    string
 	concurrency  int
 	timeout      int
 	verbose      bool
-	noSecurity   bool // Changed to "noSecurity" flag to disable rather than enable
+	noSecurity   bool
 	noCloud      bool
+	noWhois      bool
+	noZoneXfer   bool
+	noDNSSEC     bool
+	noTakeover   bool
+	noHeaders    bool
+	noReverse    bool
+	noCacheSnoop bool
+	noRecursive  bool
 	useTUI       bool
 )
 
@@ -64,16 +76,26 @@ func init() {
 
 	// Parse flags
 	flag.StringVar(&outputFile, "o", "", "Output file for results (JSON)")
+	flag.StringVar(&htmlFile, "html", "", "Output file for HTML report")
 	flag.StringVar(&wordlistFile, "w", "", "File with subdomain list for brute-force")
 	flag.Var(&ports, "p", "Ports to scan (can be used multiple times, default: 80,443,22,21,25,8080,8443)")
 	flag.BoolVar(&noCerts, "no-certs", false, "Skip subdomain discovery via certificates")
 	flag.BoolVar(&noBruteforce, "no-bruteforce", false, "Skip brute-force subdomain discovery")
+	flag.BoolVar(&noPassive, "no-passive", false, "Skip passive subdomain discovery")
 	flag.StringVar(&dnsServer, "dns", "8.8.8.8:53", "DNS server to use for queries")
 	flag.IntVar(&concurrency, "c", 40, "Concurrency level for scans")
 	flag.IntVar(&timeout, "t", 1, "Timeout in seconds for network operations")
 	flag.BoolVar(&verbose, "v", false, "Verbose output")
-	flag.BoolVar(&noSecurity, "no-security", false, "Skip email security configuration analysis") // Changed to opt-out
+	flag.BoolVar(&noSecurity, "no-security", false, "Skip email security configuration analysis")
 	flag.BoolVar(&noCloud, "no-cloud", false, "Skip cloud infrastructure detection")
+	flag.BoolVar(&noWhois, "no-whois", false, "Skip WHOIS lookup")
+	flag.BoolVar(&noZoneXfer, "no-axfr", false, "Skip DNS zone transfer test")
+	flag.BoolVar(&noDNSSEC, "no-dnssec", false, "Skip DNSSEC validation")
+	flag.BoolVar(&noTakeover, "no-takeover", false, "Skip subdomain takeover detection")
+	flag.BoolVar(&noHeaders, "no-headers", false, "Skip HTTP security header analysis")
+	flag.BoolVar(&noReverse, "no-reverse", false, "Skip reverse DNS lookups")
+	flag.BoolVar(&noCacheSnoop, "no-cachesnoop", false, "Skip DNS cache snooping")
+	flag.BoolVar(&noRecursive, "no-recursive", false, "Skip recursive subdomain discovery")
 	flag.BoolVar(&useTUI, "tui", false, "Spustit v TUI režimu (terminálové rozhraní)")
 
 	// Custom usage message
@@ -151,7 +173,9 @@ func main() {
 	// Start the scan
 	console.PrintProgress("Starting DNS reconnaissance...")
 
+	// ──────────────────────────────────────────────────
 	// 1. Get IP addresses for the domain
+	// ──────────────────────────────────────────────────
 	console.PrintProgress("Getting IP addresses for the domain...")
 	results.DomainIPs = dnsResolver.GetIPs(domain)
 	if len(results.DomainIPs) > 0 {
@@ -160,7 +184,9 @@ func main() {
 		console.PrintWarning(fmt.Sprintf("Could not get IP addresses for %s", domain))
 	}
 
+	// ──────────────────────────────────────────────────
 	// 2. Get DNS records
+	// ──────────────────────────────────────────────────
 	recordTypes := []string{"A", "AAAA", "CNAME", "MX", "NS", "TXT", "SOA"}
 	var wg sync.WaitGroup
 	var mutex sync.Mutex
@@ -183,7 +209,66 @@ func main() {
 
 	wg.Wait()
 
-	// Run security analysis AFTER DNS records are retrieved, but store results for later display
+	// ──────────────────────────────────────────────────
+	// 3. WHOIS Lookup
+	// ──────────────────────────────────────────────────
+	if !noWhois {
+		console.PrintProgress("Performing WHOIS lookup...")
+		whoisLookup := whois.NewLookup()
+		whoisInfo, err := whoisLookup.GetWhoisInfo(domain)
+		if err == nil && whoisInfo != nil {
+			results.WhoisInfo = whoisInfo
+			console.PrintSuccess(fmt.Sprintf("WHOIS: Registrar=%s, Expires=%s", whoisInfo.Registrar, whoisInfo.ExpiryDate))
+		} else if err != nil {
+			console.PrintWarning(fmt.Sprintf("WHOIS lookup failed: %s", err))
+		}
+	}
+
+	// ──────────────────────────────────────────────────
+	// 4. Zone Transfer (AXFR) Test
+	// ──────────────────────────────────────────────────
+	if !noZoneXfer {
+		console.PrintProgress("Testing DNS zone transfer (AXFR)...")
+		ztResults := dnsResolver.TestZoneTransfer(domain)
+		if len(ztResults) > 0 {
+			results.ZoneTransfer = ztResults
+			vulnCount := 0
+			for _, zt := range ztResults {
+				if zt.Vulnerable {
+					vulnCount++
+				}
+			}
+			if vulnCount > 0 {
+				console.PrintError(fmt.Sprintf("CRITICAL: %d nameserver(s) allow zone transfer!", vulnCount))
+			} else {
+				console.PrintSuccess("No nameservers allow zone transfer")
+			}
+		}
+	}
+
+	// ──────────────────────────────────────────────────
+	// 5. DNSSEC Validation
+	// ──────────────────────────────────────────────────
+	if !noDNSSEC {
+		console.PrintProgress("Checking DNSSEC configuration...")
+		dnssecResult := dnsResolver.CheckDNSSEC(domain)
+		if dnssecResult != nil {
+			results.DNSSEC = dnssecResult
+			if dnssecResult.Enabled {
+				if dnssecResult.Valid {
+					console.PrintSuccess("DNSSEC is enabled and valid")
+				} else {
+					console.PrintWarning("DNSSEC is enabled but has validation issues")
+				}
+			} else {
+				console.PrintWarning("DNSSEC is not enabled")
+			}
+		}
+	}
+
+	// ──────────────────────────────────────────────────
+	// 6. Email Security Analysis
+	// ──────────────────────────────────────────────────
 	var secResult *models.SecurityResult
 	var secErr error
 	if !noSecurity {
@@ -192,10 +277,7 @@ func main() {
 		secResult, secErr = secAnalyzer.AnalyzeDomain(domain)
 
 		if secErr == nil && secResult != nil {
-			// Add security results to the overall results
 			results.SecurityAnalysis = secResult
-
-			// Print a summary line about the security findings
 			recCount := len(secResult.Recommendations)
 			if recCount > 0 {
 				console.PrintSuccess(fmt.Sprintf("Found %d mail security recommendations", recCount))
@@ -207,7 +289,21 @@ func main() {
 		}
 	}
 
-	// 3. Find subdomains from certificates
+	// ──────────────────────────────────────────────────
+	// 7. Wildcard DNS Detection (before subdomain discovery)
+	// ──────────────────────────────────────────────────
+	console.PrintProgress("Checking for wildcard DNS...")
+	wildcardDetector := subdomain.NewWildcardDetector()
+	wildcardResult := wildcardDetector.DetectWildcard(domain)
+	if wildcardResult.IsWildcard {
+		console.PrintWarning(fmt.Sprintf("Wildcard DNS detected! IPs: %s — brute-force results will be filtered", strings.Join(wildcardResult.WildcardIP, ", ")))
+	} else {
+		console.PrintSuccess("No wildcard DNS detected")
+	}
+
+	// ──────────────────────────────────────────────────
+	// 8. Subdomain Discovery: Certificates
+	// ──────────────────────────────────────────────────
 	if !noCerts {
 		console.PrintProgress("Looking for subdomains via certificates...")
 		certFinder := subdomain.NewCertFinder()
@@ -217,7 +313,6 @@ func main() {
 			results.CertSubdomains = certSubdomains
 			console.PrintSuccess(fmt.Sprintf("Found %d subdomains via certificates", len(certSubdomains)))
 
-			// Get IP addresses for these subdomains
 			validSubdomains := processSubdomains(certSubdomains, certFinder, results, console)
 			console.PrintSuccess(fmt.Sprintf("Verified %d active subdomains from certificates", len(validSubdomains)))
 		} else {
@@ -225,7 +320,50 @@ func main() {
 		}
 	}
 
-	// 4. Brute-force subdomains
+	// ──────────────────────────────────────────────────
+	// 9. Subdomain Discovery: Passive Sources
+	// ──────────────────────────────────────────────────
+	if !noPassive {
+		console.PrintProgress("Querying passive subdomain sources...")
+		passiveFinder := subdomain.NewPassiveFinder()
+		passiveSubs := passiveFinder.FindSubdomains(domain)
+
+		if len(passiveSubs) > 0 {
+			results.PassiveSubdomains = passiveSubs
+			console.PrintSuccess(fmt.Sprintf("Found %d subdomains via passive sources", len(passiveSubs)))
+
+			// Add to main subdomains (deduplicate)
+			certFinder := subdomain.NewCertFinder()
+			newCount := 0
+			existingMap := make(map[string]bool)
+			for _, s := range results.Subdomains {
+				existingMap[s.Name] = true
+			}
+			for _, sub := range passiveSubs {
+				if !existingMap[sub] {
+					name, ip, err := certFinder.CheckSubdomain(sub)
+					if err == nil {
+						// Filter wildcard IPs
+						if wildcardResult.IsWildcard && containsString(wildcardResult.WildcardIP, ip) {
+							continue
+						}
+						results.Subdomains = append(results.Subdomains, models.SubdomainInfo{Name: name, IP: ip})
+						existingMap[name] = true
+						newCount++
+					}
+				}
+			}
+			if newCount > 0 {
+				console.PrintSuccess(fmt.Sprintf("Verified %d new active subdomains from passive sources", newCount))
+			}
+		} else {
+			console.PrintWarning("No subdomains found via passive sources")
+		}
+	}
+
+	// ──────────────────────────────────────────────────
+	// 10. Subdomain Discovery: Brute-force
+	// ──────────────────────────────────────────────────
 	if !noBruteforce {
 		console.PrintProgress("Starting brute-force subdomain discovery...")
 		bruteFinder := subdomain.NewBruteFinder()
@@ -234,16 +372,27 @@ func main() {
 		bruteResults := bruteFinder.BruteForceSubdomains(domain, wordlistFile)
 
 		if len(bruteResults) > 0 {
-			// Extract subdomain names for the results
 			var bruteSubdomains []string
+			existingMap := make(map[string]bool)
+			for _, s := range results.Subdomains {
+				existingMap[s.Name] = true
+			}
+
 			for _, result := range bruteResults {
 				bruteSubdomains = append(bruteSubdomains, result.Name)
 
-				// Add to main results
-				results.Subdomains = append(results.Subdomains, models.SubdomainInfo{
-					Name: result.Name,
-					IP:   result.IP,
-				})
+				// Filter wildcard IPs
+				if wildcardResult.IsWildcard && containsString(wildcardResult.WildcardIP, result.IP) {
+					continue
+				}
+
+				if !existingMap[result.Name] {
+					results.Subdomains = append(results.Subdomains, models.SubdomainInfo{
+						Name: result.Name,
+						IP:   result.IP,
+					})
+					existingMap[result.Name] = true
+				}
 			}
 
 			results.BruteSubdomains = bruteSubdomains
@@ -253,19 +402,59 @@ func main() {
 		}
 	}
 
+	// ──────────────────────────────────────────────────
+	// 11. Recursive Subdomain Discovery
+	// ──────────────────────────────────────────────────
+	if !noRecursive && len(results.Subdomains) > 0 {
+		console.PrintProgress("Running recursive subdomain discovery...")
+		certFinder := subdomain.NewCertFinder()
+		existingMap := make(map[string]bool)
+		for _, s := range results.Subdomains {
+			existingMap[s.Name] = true
+		}
+
+		// For each found subdomain, try to discover sub-subdomains via CT
+		var newSubs []models.SubdomainInfo
+		for _, sub := range results.Subdomains {
+			// Only recurse on subdomains that are one level deep
+			parts := strings.Split(sub.Name, ".")
+			domainParts := strings.Split(domain, ".")
+			if len(parts) <= len(domainParts)+1 {
+				deepSubs := certFinder.FindSubdomainsFromCertificates(sub.Name)
+				for _, ds := range deepSubs {
+					if !existingMap[ds] {
+						name, ip, err := certFinder.CheckSubdomain(ds)
+						if err == nil {
+							if wildcardResult.IsWildcard && containsString(wildcardResult.WildcardIP, ip) {
+								continue
+							}
+							newSubs = append(newSubs, models.SubdomainInfo{Name: name, IP: ip})
+							existingMap[name] = true
+						}
+					}
+				}
+			}
+		}
+
+		if len(newSubs) > 0 {
+			results.Subdomains = append(results.Subdomains, newSubs...)
+			console.PrintSuccess(fmt.Sprintf("Found %d additional subdomains via recursive discovery", len(newSubs)))
+		}
+	}
+
+	// ──────────────────────────────────────────────────
+	// 12. Cloud Infrastructure Detection
+	// ──────────────────────────────────────────────────
 	if !noCloud {
 		console.PrintProgress("Analyzing cloud infrastructure...")
-
 		cloudDetector := cloud.NewDetector(dnsServer)
 		cloudResult, err := cloudDetector.AnalyzeCloudInfrastructure(domain, results)
 		if err != nil {
 			console.PrintWarning(fmt.Sprintf("Could not perform cloud infrastructure analysis: %s", err))
 		} else {
-			// Show a summary of the findings
 			if cloudResult.TotalProviders > 0 {
 				console.PrintSuccess(fmt.Sprintf("Found %d cloud providers with %d services",
 					cloudResult.TotalProviders, cloudResult.TotalServices))
-
 				if cloudResult.TotalOrphaned > 0 {
 					console.PrintWarning(fmt.Sprintf("Detected %d potential orphaned cloud resources",
 						cloudResult.TotalOrphaned))
@@ -273,17 +462,80 @@ func main() {
 			} else {
 				console.PrintSuccess("No cloud infrastructure detected")
 			}
-
-			// Add cloud results to the overall results
 			results.CloudAnalysis = cloudResult
 		}
 	}
 
-	// 5. Gather detailed information for each subdomain
+	// ──────────────────────────────────────────────────
+	// 13. Subdomain Takeover Detection
+	// ──────────────────────────────────────────────────
+	if !noTakeover && len(results.Subdomains) > 0 {
+		console.PrintProgress("Checking for subdomain takeover vulnerabilities...")
+		takeoverChecker := subdomain.NewTakeoverChecker()
+		takeoverResults := takeoverChecker.CheckSubdomains(results.Subdomains, dnsServer)
+		if len(takeoverResults) > 0 {
+			results.TakeoverResults = takeoverResults
+			vulnCount := 0
+			for _, tr := range takeoverResults {
+				if tr.Vulnerable {
+					vulnCount++
+				}
+			}
+			if vulnCount > 0 {
+				console.PrintError(fmt.Sprintf("CRITICAL: %d subdomain(s) may be vulnerable to takeover!", vulnCount))
+			} else {
+				console.PrintSuccess(fmt.Sprintf("Checked %d subdomains, no takeover vulnerabilities found", len(takeoverResults)))
+			}
+		}
+	}
+
+	// ──────────────────────────────────────────────────
+	// 14. Reverse DNS (PTR) Lookups
+	// ──────────────────────────────────────────────────
+	if !noReverse {
+		// Collect all unique IPs
+		ipSet := make(map[string]bool)
+		for _, ip := range results.DomainIPs {
+			ipSet[ip] = true
+		}
+		for _, sub := range results.Subdomains {
+			if sub.IP != "" {
+				ipSet[sub.IP] = true
+			}
+		}
+		var allIPs []string
+		for ip := range ipSet {
+			allIPs = append(allIPs, ip)
+		}
+
+		if len(allIPs) > 0 {
+			console.PrintProgress(fmt.Sprintf("Performing reverse DNS lookups for %d IPs...", len(allIPs)))
+			reverseFinder := subdomain.NewReverseFinder()
+			reverseFinder.MaxConcurrent = concurrency
+			reverseResults := reverseFinder.ReverseLookup(allIPs)
+			if len(reverseResults) > 0 {
+				// Convert to models type
+				for _, rr := range reverseResults {
+					results.ReverseDNS = append(results.ReverseDNS, models.ReverseDNSResult{
+						IP:        rr.IP,
+						Hostnames: rr.Hostnames,
+					})
+				}
+				totalHostnames := 0
+				for _, rr := range reverseResults {
+					totalHostnames += len(rr.Hostnames)
+				}
+				console.PrintSuccess(fmt.Sprintf("Found %d reverse DNS entries for %d IPs", totalHostnames, len(reverseResults)))
+			}
+		}
+	}
+
+	// ──────────────────────────────────────────────────
+	// 15. Detailed subdomain analysis (ports, SSL, ASN)
+	// ──────────────────────────────────────────────────
 	if len(results.Subdomains) > 0 {
 		console.PrintProgress("Gathering detailed information about subdomains...")
 
-		// Initialize components
 		portScanner := scanner.NewScanner()
 		portScanner.Timeout = time.Duration(timeout) * time.Second
 		portScanner.MaxConcurrent = concurrency
@@ -291,7 +543,6 @@ func main() {
 		sslCert := ssl.NewCertificate()
 		asnLookup := asn.NewLookup()
 
-		// Process each subdomain
 		subdomainDetailsChan := make(chan struct {
 			name    string
 			details models.SubdomainDetails
@@ -305,7 +556,6 @@ func main() {
 			go func(sub models.SubdomainInfo) {
 				defer detailsWg.Done()
 
-				// Acquire semaphore
 				semaphore <- struct{}{}
 				defer func() { <-semaphore }()
 
@@ -313,13 +563,9 @@ func main() {
 					IP: sub.IP,
 				}
 
-				// Get ASN information
 				details.ASN = asnLookup.GetASNInfo(sub.IP)
 
-				// Scan ports
 				openPorts := portScanner.PortScan(sub.IP, ports)
-
-				// Get service details for open ports
 				for _, port := range openPorts {
 					serviceDetail := portScanner.GetServiceDetails(sub.IP, port)
 					if serviceDetail != "" {
@@ -327,13 +573,11 @@ func main() {
 					}
 				}
 
-				// Get SSL information (443 is standard HTTPS port)
 				sslInfo := sslCert.GetSSLInfo(sub.Name, 443)
 				if sslInfo != nil {
 					details.SSLInfo = sslInfo
 				}
 
-				// Send results to channel
 				subdomainDetailsChan <- struct {
 					name    string
 					details models.SubdomainDetails
@@ -342,13 +586,11 @@ func main() {
 			}(sub)
 		}
 
-		// Collect results in a separate goroutine
 		go func() {
 			detailsWg.Wait()
 			close(subdomainDetailsChan)
 		}()
 
-		// Process the results
 		for result := range subdomainDetailsChan {
 			results.SubdomainData[result.name] = result.details
 		}
@@ -356,10 +598,93 @@ func main() {
 		console.PrintSuccess(fmt.Sprintf("Gathered detailed information for %d subdomains", len(results.SubdomainData)))
 	}
 
+	// ──────────────────────────────────────────────────
+	// 16. HTTP Security Headers Analysis
+	// ──────────────────────────────────────────────────
+	if !noHeaders && len(results.Subdomains) > 0 {
+		console.PrintProgress("Analyzing HTTP security headers...")
+		headerAnalyzer := httpinfo.NewAnalyzer()
+		headerResults := headerAnalyzer.AnalyzeSubdomains(results.Subdomains, concurrency)
+		if len(headerResults) > 0 {
+			results.HeaderAnalysis = headerResults
+			totalFindings := 0
+			for _, ha := range headerResults {
+				totalFindings += len(ha.Findings)
+			}
+			console.PrintSuccess(fmt.Sprintf("Analyzed headers for %d hosts, found %d findings", len(headerResults), totalFindings))
+		}
+	}
+
+	// ──────────────────────────────────────────────────
+	// 17. DNS Cache Snooping
+	// ──────────────────────────────────────────────────
+	if !noCacheSnoop {
+		// Get nameservers to snoop on
+		snoopDomains := []string{"google.com", "facebook.com", "amazon.com", "microsoft.com", "github.com"}
+		if nsRecords, ok := results.Records["NS"].([]interface{}); ok && len(nsRecords) > 0 {
+			for _, nsRec := range nsRecords {
+				if ns, ok := nsRec.(*models.NSRecord); ok {
+					nsServer := strings.TrimSuffix(ns.NameServer, ".") + ":53"
+					console.PrintProgress(fmt.Sprintf("DNS cache snooping on %s...", nsServer))
+					snoopResults := dnsResolver.CacheSnoop(nsServer, snoopDomains)
+					if len(snoopResults) > 0 {
+						for _, sr := range snoopResults {
+							results.CacheSnoop = append(results.CacheSnoop, sr)
+						}
+					}
+					break // Only snoop on first NS
+				}
+			}
+		}
+		if len(results.CacheSnoop) > 0 {
+			cachedCount := 0
+			for _, cs := range results.CacheSnoop {
+				if cs.Cached {
+					cachedCount++
+				}
+			}
+			if cachedCount > 0 {
+				console.PrintSuccess(fmt.Sprintf("DNS cache snooping: %d/%d domains cached on nameserver", cachedCount, len(results.CacheSnoop)))
+			}
+		}
+	}
+
+	// ──────────────────────────────────────────────────
 	// Print results
+	// ──────────────────────────────────────────────────
 	console.PrintResults(results)
 
-	// Print security results at the END of the output
+	// Print WHOIS results
+	if results.WhoisInfo != nil {
+		printWhoisResults(results.WhoisInfo, domain)
+	}
+
+	// Print Zone Transfer results
+	if len(results.ZoneTransfer) > 0 {
+		printZoneTransferResults(results.ZoneTransfer, domain)
+	}
+
+	// Print DNSSEC results
+	if results.DNSSEC != nil {
+		printDNSSECResults(results.DNSSEC, domain)
+	}
+
+	// Print Takeover results
+	if len(results.TakeoverResults) > 0 {
+		printTakeoverResults(results.TakeoverResults, domain)
+	}
+
+	// Print HTTP Header results
+	if len(results.HeaderAnalysis) > 0 {
+		printHeaderResults(results.HeaderAnalysis, domain)
+	}
+
+	// Print Reverse DNS results
+	if len(results.ReverseDNS) > 0 {
+		printReverseDNSResults(results.ReverseDNS, domain)
+	}
+
+	// Print security results
 	if !noSecurity && secErr == nil && secResult != nil {
 		printSecurityResults(secResult, domain)
 	}
@@ -368,20 +693,229 @@ func main() {
 		console.PrintCloudResults(results.CloudAnalysis, domain)
 	}
 
-	// Save results to file if requested
+	// Print cache snoop results
+	if len(results.CacheSnoop) > 0 {
+		printCacheSnoopResults(results.CacheSnoop, domain)
+	}
+
+	// Save results to JSON
 	if outputFile != "" {
 		jsonOutput := output.NewJSON()
 		err := jsonOutput.SaveResultsToJSON(results, outputFile)
 		if err != nil {
 			console.PrintError(fmt.Sprintf("Failed to save results to file: %s", err))
 		} else {
-			console.PrintSuccess(fmt.Sprintf("Results saved to file: %s", outputFile))
+			console.PrintSuccess(fmt.Sprintf("Results saved to JSON: %s", outputFile))
+		}
+	}
+
+	// Save results to HTML
+	if htmlFile != "" {
+		htmlOutput := output.NewHTML()
+		err := htmlOutput.SaveResultsToHTML(results, htmlFile)
+		if err != nil {
+			console.PrintError(fmt.Sprintf("Failed to save HTML report: %s", err))
+		} else {
+			console.PrintSuccess(fmt.Sprintf("HTML report saved to: %s", htmlFile))
 		}
 	}
 }
 
+// ─────────────────────────────────────────────────────
+// Print functions for new modules
+// ─────────────────────────────────────────────────────
+
+func printWhoisResults(info *models.WhoisInfo, domain string) {
+	fmt.Printf("\n%s%sWHOIS Information for %s:%s\n",
+		output.ColorBold, output.ColorBlue, domain, output.ColorReset)
+
+	table := tablewriter.NewWriter(os.Stdout)
+	table.SetHeader([]string{"Field", "Value"})
+	table.SetBorder(true)
+	table.SetAutoWrapText(false)
+	table.SetColWidth(60)
+
+	if info.Registrar != "" {
+		table.Append([]string{"Registrar", info.Registrar})
+	}
+	if info.CreatedDate != "" {
+		table.Append([]string{"Created", info.CreatedDate})
+	}
+	if info.ExpiryDate != "" {
+		table.Append([]string{"Expires", info.ExpiryDate})
+	}
+	if info.UpdatedDate != "" {
+		table.Append([]string{"Updated", info.UpdatedDate})
+	}
+	if info.Organization != "" {
+		table.Append([]string{"Organization", info.Organization})
+	}
+	if info.Country != "" {
+		table.Append([]string{"Country", info.Country})
+	}
+	if info.DNSSEC != "" {
+		table.Append([]string{"DNSSEC", info.DNSSEC})
+	}
+	if len(info.NameServers) > 0 {
+		table.Append([]string{"Name Servers", strings.Join(info.NameServers, ", ")})
+	}
+
+	table.Render()
+}
+
+func printZoneTransferResults(ztResults []models.ZoneTransferResult, domain string) {
+	fmt.Printf("\n%s%sZone Transfer (AXFR) Results for %s:%s\n",
+		output.ColorBold, output.ColorBlue, domain, output.ColorReset)
+
+	table := tablewriter.NewWriter(os.Stdout)
+	table.SetHeader([]string{"Nameserver", "Vulnerable", "Records"})
+	table.SetBorder(true)
+
+	for _, zt := range ztResults {
+		vuln := "No"
+		if zt.Vulnerable {
+			vuln = fmt.Sprintf("%sYES%s", output.ColorRed, output.ColorReset)
+		}
+		recordCount := fmt.Sprintf("%d", len(zt.Records))
+		if zt.Error != "" {
+			recordCount = zt.Error
+		}
+		table.Append([]string{zt.Nameserver, vuln, recordCount})
+	}
+
+	table.Render()
+}
+
+func printDNSSECResults(result *models.DNSSECResult, domain string) {
+	fmt.Printf("\n%s%sDNSSEC Validation for %s:%s\n",
+		output.ColorBold, output.ColorBlue, domain, output.ColorReset)
+
+	table := tablewriter.NewWriter(os.Stdout)
+	table.SetHeader([]string{"Property", "Value"})
+	table.SetBorder(true)
+
+	enabled := "No"
+	if result.Enabled {
+		enabled = fmt.Sprintf("%sYes%s", output.ColorGreen, output.ColorReset)
+	}
+	table.Append([]string{"Enabled", enabled})
+
+	if result.Enabled {
+		valid := fmt.Sprintf("%sNo%s", output.ColorRed, output.ColorReset)
+		if result.Valid {
+			valid = fmt.Sprintf("%sYes%s", output.ColorGreen, output.ColorReset)
+		}
+		table.Append([]string{"Valid", valid})
+		table.Append([]string{"Algorithm", result.Algorithm})
+		table.Append([]string{"DNSKEY Records", fmt.Sprintf("%d", result.DNSKEYs)})
+		table.Append([]string{"DS Records", fmt.Sprintf("%d", result.DSRecords)})
+		if len(result.KeyTypes) > 0 {
+			table.Append([]string{"Key Types", strings.Join(result.KeyTypes, ", ")})
+		}
+	}
+
+	if len(result.Issues) > 0 {
+		table.Append([]string{"Issues", strings.Join(result.Issues, "; ")})
+	}
+
+	table.Render()
+}
+
+func printTakeoverResults(takeoverResults []models.TakeoverResult, domain string) {
+	fmt.Printf("\n%s%sSubdomain Takeover Analysis for %s:%s\n",
+		output.ColorBold, output.ColorBlue, domain, output.ColorReset)
+
+	table := tablewriter.NewWriter(os.Stdout)
+	table.SetHeader([]string{"Subdomain", "CNAME", "Service", "Vulnerable", "Risk"})
+	table.SetBorder(true)
+	table.SetAutoWrapText(false)
+
+	for _, tr := range takeoverResults {
+		vuln := "No"
+		if tr.Vulnerable {
+			vuln = fmt.Sprintf("%sYES%s", output.ColorRed, output.ColorReset)
+		}
+		riskColor := output.ColorGreen
+		if tr.Risk == "High" {
+			riskColor = output.ColorRed
+		} else if tr.Risk == "Medium" {
+			riskColor = output.ColorYellow
+		}
+		table.Append([]string{
+			tr.Subdomain,
+			tr.CNAME,
+			tr.Service,
+			vuln,
+			fmt.Sprintf("%s%s%s", riskColor, tr.Risk, output.ColorReset),
+		})
+	}
+
+	table.Render()
+}
+
+func printHeaderResults(headerResults map[string]*models.HeaderAnalysis, domain string) {
+	fmt.Printf("\n%s%sHTTP Security Headers for %s:%s\n",
+		output.ColorBold, output.ColorBlue, domain, output.ColorReset)
+
+	table := tablewriter.NewWriter(os.Stdout)
+	table.SetHeader([]string{"Host", "Server", "Missing Headers", "Technologies"})
+	table.SetBorder(true)
+	table.SetAutoWrapText(false)
+	table.SetColWidth(40)
+
+	for host, ha := range headerResults {
+		missing := strings.Join(ha.MissingHeaders, ", ")
+		if len(missing) > 60 {
+			missing = missing[:57] + "..."
+		}
+		techs := strings.Join(ha.Technologies, ", ")
+		if len(techs) > 40 {
+			techs = techs[:37] + "..."
+		}
+		table.Append([]string{host, ha.Server, missing, techs})
+	}
+
+	table.Render()
+}
+
+func printReverseDNSResults(reverseResults []models.ReverseDNSResult, domain string) {
+	fmt.Printf("\n%s%sReverse DNS (PTR) Results for %s:%s\n",
+		output.ColorBold, output.ColorBlue, domain, output.ColorReset)
+
+	table := tablewriter.NewWriter(os.Stdout)
+	table.SetHeader([]string{"IP Address", "Hostnames"})
+	table.SetBorder(true)
+	table.SetAutoWrapText(false)
+
+	for _, rr := range reverseResults {
+		table.Append([]string{rr.IP, strings.Join(rr.Hostnames, ", ")})
+	}
+
+	table.Render()
+}
+
+func printCacheSnoopResults(snoopResults []models.CacheSnoopResult, domain string) {
+	fmt.Printf("\n%s%sDNS Cache Snooping for %s nameservers:%s\n",
+		output.ColorBold, output.ColorBlue, domain, output.ColorReset)
+
+	table := tablewriter.NewWriter(os.Stdout)
+	table.SetHeader([]string{"Server", "Domain", "Cached", "TTL"})
+	table.SetBorder(true)
+
+	for _, cs := range snoopResults {
+		cached := "No"
+		ttl := "-"
+		if cs.Cached {
+			cached = fmt.Sprintf("%sYes%s", output.ColorGreen, output.ColorReset)
+			ttl = fmt.Sprintf("%d", cs.TTL)
+		}
+		table.Append([]string{cs.Server, cs.Domain, cached, ttl})
+	}
+
+	table.Render()
+}
+
 func printSecurityResults(result *models.SecurityResult, domain string) {
-	// Print overall security score
 	securityRating := "Poor"
 	if result.SecurityScore >= 70 {
 		securityRating = "Excellent"
@@ -394,7 +928,6 @@ func printSecurityResults(result *models.SecurityResult, domain string) {
 	fmt.Printf("\n%s%sEmail Security Analysis for %s:%s\n",
 		output.ColorBold, output.ColorBlue, domain, output.ColorReset)
 
-	// Create summary table
 	summaryTable := tablewriter.NewWriter(os.Stdout)
 	summaryTable.SetHeader([]string{"Security Rating", "Score"})
 	summaryTable.Append([]string{securityRating, fmt.Sprintf("%d/100", result.SecurityScore)})
@@ -407,22 +940,14 @@ func printSecurityResults(result *models.SecurityResult, domain string) {
 	spfTable.SetHeader([]string{"Status", "Policy", "Record"})
 
 	if result.SPFRecord != nil {
-		var status string
+		status := "Invalid"
 		if result.SPFRecord.Valid {
 			status = "Valid"
-		} else {
-			status = "Invalid"
 		}
-
-		spfTable.Append([]string{
-			status,
-			result.SPFRecord.Policy,
-			result.SPFRecord.Record,
-		})
+		spfTable.Append([]string{status, result.SPFRecord.Policy, result.SPFRecord.Record})
 	} else {
 		spfTable.Append([]string{"Not Found", "-", "-"})
 	}
-
 	spfTable.SetBorder(true)
 	spfTable.Render()
 
@@ -432,13 +957,10 @@ func printSecurityResults(result *models.SecurityResult, domain string) {
 	dmarcTable.SetHeader([]string{"Status", "Policy", "Percentage", "Record"})
 
 	if result.DMARCRecord != nil {
-		var status string
+		status := "Invalid"
 		if result.DMARCRecord.Valid {
 			status = "Valid"
-		} else {
-			status = "Invalid"
 		}
-
 		dmarcTable.Append([]string{
 			status,
 			result.DMARCRecord.Policy,
@@ -448,7 +970,6 @@ func printSecurityResults(result *models.SecurityResult, domain string) {
 	} else {
 		dmarcTable.Append([]string{"Not Found", "-", "-", "-"})
 	}
-
 	dmarcTable.SetBorder(true)
 	dmarcTable.Render()
 
@@ -460,14 +981,12 @@ func printSecurityResults(result *models.SecurityResult, domain string) {
 	if result.DKIMRecords != nil && len(result.DKIMRecords) > 0 {
 		validCount := 0
 		var selectors []string
-
 		for _, dkim := range result.DKIMRecords {
 			if dkim.Valid {
 				validCount++
 				selectors = append(selectors, dkim.Selector)
 			}
 		}
-
 		if validCount > 0 {
 			dkimTable.Append([]string{
 				fmt.Sprintf("%d Valid", validCount),
@@ -479,7 +998,6 @@ func printSecurityResults(result *models.SecurityResult, domain string) {
 	} else {
 		dkimTable.Append([]string{"Not Found", "-"})
 	}
-
 	dkimTable.SetBorder(true)
 	dkimTable.Render()
 
@@ -489,20 +1007,14 @@ func printSecurityResults(result *models.SecurityResult, domain string) {
 	mxTable.SetHeader([]string{"Security Status", "Backup MX", "Servers"})
 
 	if result.MXAnalysis != nil && len(result.MXAnalysis.Servers) > 0 {
-		var securityStatus string
+		securityStatus := "Partial/Unknown"
 		if result.MXAnalysis.AllSecure {
 			securityStatus = "Secure"
-		} else {
-			securityStatus = "Partial/Unknown"
 		}
-
-		var backupStatus string
+		backupStatus := "No"
 		if result.MXAnalysis.HasBackup {
 			backupStatus = "Yes"
-		} else {
-			backupStatus = "No"
 		}
-
 		mxTable.Append([]string{
 			securityStatus,
 			backupStatus,
@@ -511,7 +1023,6 @@ func printSecurityResults(result *models.SecurityResult, domain string) {
 	} else {
 		mxTable.Append([]string{"Not Available", "-", "-"})
 	}
-
 	mxTable.SetBorder(true)
 	mxTable.Render()
 
@@ -528,7 +1039,6 @@ func printSecurityResults(result *models.SecurityResult, domain string) {
 	} else {
 		caaTable.Append([]string{"Not Found", "-"})
 	}
-
 	caaTable.SetBorder(true)
 	caaTable.Render()
 
@@ -548,10 +1058,7 @@ func printSecurityResults(result *models.SecurityResult, domain string) {
 		}
 
 		for i, rec := range result.Recommendations[:numToShow] {
-			recTable.Append([]string{
-				fmt.Sprintf("%d", i+1),
-				rec,
-			})
+			recTable.Append([]string{fmt.Sprintf("%d", i+1), rec})
 		}
 
 		if len(result.Recommendations) > maxToShow {
@@ -580,7 +1087,6 @@ func processSubdomains(subdomains []string, certFinder *subdomain.CertFinder, re
 		go func(subdomain string) {
 			defer wg.Done()
 
-			// Acquire semaphore
 			semaphore <- struct{}{}
 			defer func() { <-semaphore }()
 
@@ -596,13 +1102,11 @@ func processSubdomains(subdomains []string, certFinder *subdomain.CertFinder, re
 		}(sub)
 	}
 
-	// Collect results in a separate goroutine
 	go func() {
 		wg.Wait()
 		close(resultChan)
 	}()
 
-	// Process results
 	for result := range resultChan {
 		if result != nil {
 			mutex.Lock()
@@ -613,4 +1117,14 @@ func processSubdomains(subdomains []string, certFinder *subdomain.CertFinder, re
 	}
 
 	return validSubdomains
+}
+
+// containsString checks if a string is in a slice
+func containsString(slice []string, s string) bool {
+	for _, item := range slice {
+		if item == s {
+			return true
+		}
+	}
+	return false
 }

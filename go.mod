@@ -5,7 +5,7 @@ go 1.24.0
 require (
 	github.com/miekg/dns v1.1.65
 	github.com/olekukonko/tablewriter v0.0.5
-	github.com/rivo/tview v0.0.0-20250330220935-949945f8d922
+	github.com/rivo/tview v0.42.0
 	golang.org/x/net v0.39.0
 )
 
